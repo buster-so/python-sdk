@@ -1,0 +1,21 @@
+name: "Setup Python Environment"
+description: "Sets up Python and uv with caching"
+
+inputs:
+  python-version:
+    description: "The Python version to setup"
+    required: false
+    default: "3.9"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
