@@ -2,6 +2,7 @@
 """
 Shows the most detailed logging flow possible - full event reporting with DEBUG level.
 """
+
 import os
 import sys
 
@@ -34,7 +35,7 @@ context: AirflowContext = {
     "run_id": "scheduled__2024-01-15T10:00:00+00:00",
     "task_id": "transform_user_data",
     "try_number": 3,  # Final retry
-    "max_tries": 3,   # Retries exhausted
+    "max_tries": 3,  # Retries exhausted
     "exception": Exception("Database deadlock detected after 30s timeout"),
     "reason": None,
 }

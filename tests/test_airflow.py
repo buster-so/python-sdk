@@ -32,7 +32,7 @@ def test_airflow_report_error(capsys, monkeypatch):
     # Mock send_request
     mock_response = {"success": True}
 
-    def mock_send_request(url, payload, api_key):
+    def mock_send_request(url, payload, api_key, logger=None):
         assert "api2.buster.so/api/v2/public/airflow-events" in url
         assert payload["dag_id"] == "test_dag"
         assert payload["event"] == "dag_run_failed"
@@ -94,7 +94,7 @@ def test_airflow_report_error_with_api_version(monkeypatch):
     )
 
     # Mock
-    def mock_send_request(url, payload, api_key):
+    def mock_send_request(url, payload, api_key, logger=None):
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -125,7 +125,7 @@ def test_airflow_report_error_with_env(monkeypatch):
     )
 
     # Mock
-    def mock_send_request(url, payload, api_key):
+    def mock_send_request(url, payload, api_key, logger=None):
         assert "staging" in url
         return {"success": True}
 
@@ -153,7 +153,7 @@ def test_airflow_report_error_with_airflow_version(monkeypatch):
     )
 
     # Mock
-    def mock_send_request(url, payload, api_key):
+    def mock_send_request(url, payload, api_key, logger=None):
         assert payload["airflow_version"] == "2.5.0"
         return {"success": True}
 
@@ -205,7 +205,7 @@ def test_airflow_report_error_sends_on_exhaustion(monkeypatch):
     )
 
     # Mock
-    def mock_send_request(url, payload, api_key):
+    def mock_send_request(url, payload, api_key, logger=None):
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -235,7 +235,7 @@ def test_airflow_report_error_default_event_type(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     # Mock
-    def mock_send_request(url, payload, api_key):
+    def mock_send_request(url, payload, api_key, logger=None):
         assert payload["event"] == AirflowEventType.TASK_INSTANCE_FAILED.value
         return {"success": True}
 

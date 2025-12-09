@@ -85,8 +85,6 @@ def setup_logger(name: str, debug_level: Optional[DebugLevel] = None) -> logging
         # Create console handler with formatting
         handler = logging.StreamHandler()
         handler.setLevel(level_map.get(debug_level, logging.INFO))
-        # Flush immediately for real-time output
-        handler.flush = lambda: handler.stream.flush()
 
         # Create colored formatter
         formatter = ColoredFormatter(

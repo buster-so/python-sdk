@@ -2,6 +2,7 @@
 """
 Visual test showing each type of log with clear labels.
 """
+
 import os
 import sys
 
@@ -12,6 +13,7 @@ from src.buster import Client, DebugLevel
 from src.buster.types import AirflowContext
 from src.buster.utils import setup_logger
 
+
 def section(title):
     """Print a section header"""
     print("\n" + "=" * 70, file=sys.stderr)
@@ -19,10 +21,12 @@ def section(title):
     print("=" * 70, file=sys.stderr)
     sys.stderr.flush()
 
+
 def subsection(desc):
     """Print a subsection"""
     print(f"\n>> {desc}", file=sys.stderr)
     sys.stderr.flush()
+
 
 # =============================================================================
 section("1. COLOR-CODED LOG LEVELS")
