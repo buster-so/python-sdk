@@ -1,18 +1,13 @@
 from enum import Enum
+from typing import Optional, TypedDict
 
-class ApiVersion(str, Enum):
-    V2 = "v2"
+from .api import ApiVersion
 
-class Environment(str, Enum):
-    PRODUCTION = "production"
-    DEVELOPMENT = "development"
-    STAGING = "staging"
 
 class AirflowEventType(str, Enum):
     DAG_RUN_FAILED = "dag_run_failed"
     TASK_INSTANCE_FAILED = "task_instance_failed"
 
-from typing import TypedDict, Optional
 
 class AirflowEventsPayload(TypedDict):
     dag_id: str
@@ -24,6 +19,7 @@ class AirflowEventsPayload(TypedDict):
 
     airflow_version: Optional[str]
 
+
 class AirflowContext(TypedDict):
     dag_id: str
     run_id: str
@@ -33,8 +29,8 @@ class AirflowContext(TypedDict):
     exception: Optional[Exception]
     reason: Optional[str]
 
+
 class AirflowReportConfig(TypedDict, total=False):
     airflow_version: Optional[str]
     api_version: ApiVersion
-    env: Environment
     send_when_retries_exhausted: bool

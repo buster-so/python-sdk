@@ -27,19 +27,60 @@ You need a Buster API Key to use the SDK. You can provide it in one of two ways:
     client = Client(buster_api_key="your-secret-key")
     ```
 
-### 3. Airflow Configuration (Optional)
+## Debug Logging
 
-You can pass Airflow-specific configuration when initializing the client.
+The SDK includes comprehensive logging to help you debug issues. Enable it by passing the `debug` parameter when initializing the client:
 
 ```python
-from buster import Client
+from buster import Client, DebugLevel
+
+# Enable DEBUG level logging (most verbose)
+client = Client(
+    buster_api_key="your-secret-key",
+    debug=DebugLevel.DEBUG
+)
+
+# Or use INFO level for less verbose output
+client = Client(
+    buster_api_key="your-secret-key",
+    debug=DebugLevel.INFO
+)
+```
+
+### Available Debug Levels
+
+| Level | Description |
+| :--- | :--- |
+| `DebugLevel.OFF` | No logging (default) |
+| `DebugLevel.ERROR` | Only error messages |
+| `DebugLevel.WARN` | Warnings and errors |
+| `DebugLevel.INFO` | General information, warnings, and errors |
+| `DebugLevel.DEBUG` | Detailed debugging information (most verbose) |
+
+Logs are color-coded in your terminal for easy scanning:
+- **DEBUG**: Cyan
+- **INFO**: Green
+- **WARNING**: Yellow
+- **ERROR**: Red
+
+> [!NOTE]
+> Colors are automatically disabled when output is redirected to files or non-terminal environments.
+
+## Configuration (Optional)
+
+You can customize the client behavior by passing optional configuration parameters.
+
+```python
+from buster import Client, DebugLevel
 from buster.types import Environment
 
 client = Client(
+    buster_api_key="your-secret-key",
+    env=Environment.STAGING,  # Optional: default is PRODUCTION
     airflow_config={
-        "env": Environment.STAGING,
         "send_when_retries_exhausted": True
-    }
+    },
+    debug=DebugLevel.INFO  # Optional: enable logging
 )
 ```
 
@@ -48,11 +89,20 @@ client = Client(
 > [!NOTE]
 > These configuration options are **rarely needed**. The SDK is designed to work out-of-the-box with sensible defaults (Production environment, V2 API, and auto-detected Airflow version).
 
+**Client-level parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `buster_api_key` | `str` | `None` | Your Buster API key. If not provided, will use `BUSTER_API_KEY` environment variable. |
+| `env` | `Environment` | `PRODUCTION` | The target environment (`PRODUCTION`, `STAGING`, `DEVELOPMENT`). |
+| `debug` | `DebugLevel` | `None` | Enable debug logging (`DEBUG`, `INFO`, `WARN`, `ERROR`, `OFF`). |
+
+**Airflow-specific configuration:**
+
 The `airflow_config` dictionary accepts the following optional keys:
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `env` | `Environment` | `PRODUCTION` | The target environment (`PRODUCTION`, `STAGING`, `DEVELOPMENT`). |
 | `api_version` | `ApiVersion` | `V2` | The Buster API version to use. |
 | `airflow_version` | `str` | `None` | **Optional**. Manually override the detected Airflow version. |
 | `send_when_retries_exhausted` | `bool` | `True` | If `True`, only reports errors when the task has exhausted all retries. |
@@ -62,17 +112,19 @@ The `airflow_config` dictionary accepts the following optional keys:
 
 ## Usage
 
-### Airflow3 Integration
+### Airflow Integration
 
-Report errors from your Airflow DAGs using the `airflow3` resource.
+Report errors from your Airflow DAGs using the `airflow.v3` resource.
 
 ```python
-from buster import Client
+from buster import Client, DebugLevel
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
 # 1. Initialize Client (global or imported)
-client = Client()
+client = Client(
+    debug=DebugLevel.INFO  # Optional: enable logging
+)
 
 # 2. Use in DAG definition
 with DAG(
@@ -81,7 +133,7 @@ with DAG(
     on_failure_callback=client.airflow.v3.dag_on_failure,
     ...
 ) as dag:
-    
+
     # 3. Use in Task definition
     task1 = PythonOperator(
         task_id="extract_data",
@@ -89,6 +141,12 @@ with DAG(
         # Report if this specific task fails
         on_failure_callback=client.airflow.v3.task_on_failure
     )
+```
+
+**Example log output with `debug=DebugLevel.INFO`:**
+```
+INFO: 📋 Reporting task_instance_failed: dag_id=daily_etl_job, run_id=scheduled_123
+INFO: ✓ Event reported successfully
 ```
 
 ## Development

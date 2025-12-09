@@ -1,4 +1,5 @@
-from buster.types import Environment, ApiVersion, AirflowContext
+from buster.types import AirflowContext, ApiVersion, Environment
+
 
 def get_airflow_v3_url(env: Environment, api_version: ApiVersion) -> str:
     """
@@ -9,13 +10,14 @@ def get_airflow_v3_url(env: Environment, api_version: ApiVersion) -> str:
         Environment.DEVELOPMENT: "http://localhost:3000",
         Environment.STAGING: "https://api2.staging.buster.so",
     }
-    
+
     base_url = base_urls.get(env)
     # This should theoretically not happen if typing is respected, but good for safety
     if not base_url:
         raise ValueError(f"Unknown environment: {env}")
-        
+
     return f"{base_url}/api/{api_version.value}/public/airflow-events"
+
 
 def extract_error_message(context: AirflowContext) -> str:
     """
@@ -23,13 +25,13 @@ def extract_error_message(context: AirflowContext) -> str:
     Prioritizes 'reason' (DAG failures) then 'exception' (Task/DAG failures).
     """
     # unexpected error
-    reason = context.get('reason')
+    reason = context.get("reason")
     if reason:
         return reason
-        
+
     # expected failure
-    exception = context.get('exception')
+    exception = context.get("exception")
     if exception:
         return str(exception)
-        
+
     return "Unknown error"

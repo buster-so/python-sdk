@@ -27,8 +27,17 @@ dev = [
     "twine",
     "build",
     "mypy",
-    "types-requests"
+    "types-requests",
+    "ruff"
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py37"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
 
 [project.urls]
 "Homepage" = "https://github.com/buster-so/buster"
