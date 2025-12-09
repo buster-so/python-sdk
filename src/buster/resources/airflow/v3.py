@@ -1,10 +1,19 @@
 from typing import Optional
-from enum import Enum
+
 from pydantic import BaseModel, ValidationError
 
-from buster.types import ApiVersion, Environment, AirflowEventsPayload, AirflowContext, AirflowEventType, AirflowReportConfig
+from buster.types import (
+    AirflowContext,
+    AirflowEventsPayload,
+    AirflowEventType,
+    AirflowReportConfig,
+    ApiVersion,
+    Environment,
+)
 from buster.utils import send_request
-from .utils import get_airflow_v3_url, extract_error_message
+
+from .utils import extract_error_message, get_airflow_v3_url
+
 
 class AirflowErrorEvent(BaseModel):
     event_type: AirflowEventType = AirflowEventType.TASK_INSTANCE_FAILED
@@ -17,10 +26,11 @@ class AirflowErrorEvent(BaseModel):
     api_version: ApiVersion = ApiVersion.V2
     env: Environment = Environment.PRODUCTION
 
+
 class AirflowV3:
     def __init__(self, client, config: Optional[AirflowReportConfig] = None):
         self.client = client
-        self.config = config or {}
+        self._config = config or {}
 
     def _report_error(
         self,
@@ -40,7 +50,7 @@ class AirflowV3:
         max_tries = context.get("max_tries") or 0
 
         # Extract values from config with defaults
-        config = self.config
+        config = self._config
         airflow_version = config.get("airflow_version")
         api_version = config.get("api_version", ApiVersion.V2)
         env = config.get("env", Environment.PRODUCTION)
@@ -49,7 +59,10 @@ class AirflowV3:
         # Logic to check if we should send the event based on retries
         if send_when_retries_exhausted and try_number is not None:
             if try_number < max_tries:
-                print(f"Buster SDK: Skipping report. Try number {try_number} is less than max tries {max_tries}")
+                print(
+                    f"Buster SDK: Skipping report. Try number {try_number} "
+                    f"is less than max tries {max_tries}"
+                )
                 return None
 
         try:
@@ -63,9 +76,9 @@ class AirflowV3:
                 error_message=error_message,
                 airflow_version=airflow_version,
                 api_version=api_version,
-                env=env
+                env=env,
             )
-            
+
             # Construct the payload
             request_payload: AirflowEventsPayload = {
                 "dag_id": event.dag_id,
@@ -76,14 +89,17 @@ class AirflowV3:
                 "error_message": event.error_message,
                 "airflow_version": event.airflow_version,
             }
-            
+
             # Construct the URL
             url = get_airflow_v3_url(env, api_version)
-            
+
             # Send the request
-            from typing import cast, Dict, Any
-            return send_request(url, cast(Dict[str, Any], request_payload), self.client._buster_api_key)
-            
+            from typing import Any, Dict, cast
+
+            return send_request(
+                url, cast(Dict[str, Any], request_payload), self.client._buster_api_key
+            )
+
         except ValidationError as e:
             # Create a friendly error message
             issues = []
@@ -93,34 +109,42 @@ class AirflowV3:
                 field = str(err["loc"][0]) if err["loc"] else "root"
                 msg = err["msg"]
                 issues.append(f"- {field}: {msg}")
-            
-            error_msg = "Invalid arguments provided to report_error:\n" + "\n".join(issues)
-            print(error_msg) # For immediate feedback
+
+            error_msg = "Invalid arguments provided to report_error:\n" + "\n".join(
+                issues
+            )
+            print(error_msg)  # For immediate feedback
             raise ValueError(error_msg) from e
 
     def dag_on_failure(self, context: AirflowContext):
         """
         Airflow callback for DAG failures.
-        
+
         Usage:
             dag = DAG(..., on_failure_callback=client.airflow.v3.dag_on_failure)
-            
+
         Args:
             context: The Airflow context dictionary.
         """
         error_message = extract_error_message(context)
 
-        return self._report_error(context, error_message, AirflowEventType.DAG_RUN_FAILED)
+        return self._report_error(
+            context, error_message, AirflowEventType.DAG_RUN_FAILED
+        )
 
     def task_on_failure(self, context: AirflowContext):
         """
         Airflow callback for Task failures.
-        
+
         Usage:
-            task = PythonOperator(..., on_failure_callback=client.airflow.v3.task_on_failure)
-            
+            task = PythonOperator(
+                ..., on_failure_callback=client.airflow.v3.task_on_failure
+            )
+
         Args:
             context: The Airflow context dictionary.
         """
         error_message = extract_error_message(context)
-        return self._report_error(context, error_message, AirflowEventType.TASK_INSTANCE_FAILED)
+        return self._report_error(
+            context, error_message, AirflowEventType.TASK_INSTANCE_FAILED
+        )

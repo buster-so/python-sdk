@@ -1,5 +1,7 @@
-from buster import Client
 import pytest
+
+from buster import Client
+
 
 def test_client_init_with_param():
     """
@@ -7,6 +9,7 @@ def test_client_init_with_param():
     """
     client = Client(buster_api_key="test-key")
     assert client._buster_api_key == "test-key"
+
 
 def test_client_init_with_env_var(monkeypatch):
     """
@@ -17,21 +20,23 @@ def test_client_init_with_env_var(monkeypatch):
     client = Client()
     assert client._buster_api_key == "env-key"
 
+
 def test_client_init_failure_missing_key(monkeypatch):
     """
     Verifies Client raises ValueError when no key is provided (neither param nor env).
     """
     # Ensure env var is unset
     monkeypatch.delenv("BUSTER_API_KEY", raising=False)
-    
+
     with pytest.raises(ValueError) as excinfo:
         Client()
-    
+
     assert "Buster API key must be provided" in str(excinfo.value)
+
 
 def test_client_init_failure_empty_key(monkeypatch):
     """
-    Verifies Client raises ValueError when an empty string is provided, 
+    Verifies Client raises ValueError when an empty string is provided,
     even if it's passed explicitly.
     """
     # Ensure env var is unset
@@ -39,5 +44,5 @@ def test_client_init_failure_empty_key(monkeypatch):
 
     with pytest.raises(ValueError) as excinfo:
         Client(buster_api_key="")
-        
+
     assert "Buster API key must be provided" in str(excinfo.value)

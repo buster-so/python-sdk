@@ -10,6 +10,13 @@ test:
 typecheck:
 	uv run mypy src
 
+lint:
+	uv run ruff format src tests
+	uv run ruff check --fix src tests
+
+format:
+	uv run ruff format src tests
+
 build: clean
 	uv build
 
