@@ -1,6 +1,7 @@
 .PHONY: install test build clean publish
 
 install:
+	uv venv
 	uv pip install -e ".[dev]"
 
 test:
