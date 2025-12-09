@@ -114,15 +114,13 @@ def test_airflow_report_error_with_api_version(monkeypatch):
 
 def test_airflow_report_error_with_env(monkeypatch):
     """
-    Verifies that report_error accepts env argument via client config.
+    Verifies that report_error accepts env argument via client parameter.
     """
     import buster.resources.airflow.v3 as v3_module
     from buster.types import Environment
 
-    # Pass env in config
-    client = Client(
-        buster_api_key="test-key", airflow_config={"env": Environment.STAGING}
-    )
+    # Pass env as client parameter
+    client = Client(buster_api_key="test-key", env=Environment.STAGING)
 
     # Mock
     def mock_send_request(url, payload, api_key, logger=None):

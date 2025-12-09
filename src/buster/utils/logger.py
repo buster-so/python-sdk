@@ -26,8 +26,10 @@ class ColoredFormatter(logging.Formatter):
         self, fmt: str, datefmt: Optional[str] = None, use_colors: bool = True
     ):
         super().__init__(fmt, datefmt)
-        self.use_colors = (
-            use_colors and hasattr(sys.stderr, "isatty") and sys.stderr.isatty()
+        # Check both stdout and stderr for TTY (since we use stdout for logs)
+        self.use_colors = use_colors and (
+            (hasattr(sys.stdout, "isatty") and sys.stdout.isatty())
+            or (hasattr(sys.stderr, "isatty") and sys.stderr.isatty())
         )
 
     def format(self, record: logging.LogRecord) -> str:
@@ -82,13 +84,14 @@ def setup_logger(name: str, debug_level: Optional[DebugLevel] = None) -> logging
     if debug_level and debug_level != DebugLevel.OFF:
         logger.setLevel(level_map.get(debug_level, logging.INFO))
 
-        # Create console handler with formatting
-        handler = logging.StreamHandler()
+        # Create console handler - use stdout for INFO/DEBUG, stderr for warnings/errors
+        # This prevents Airflow and other tools from treating all logs as errors
+        handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(level_map.get(debug_level, logging.INFO))
 
         # Create colored formatter
         formatter = ColoredFormatter(
-            "%(levelname)s: %(message)s",
+            "%(name)s - %(levelname)s: %(message)s",
             use_colors=True,
         )
         handler.setFormatter(formatter)

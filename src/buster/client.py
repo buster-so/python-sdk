@@ -1,7 +1,7 @@
 from typing import Optional
 
 from .resources.airflow import AirflowResource
-from .types import AirflowReportConfig, DebugLevel
+from .types import AirflowReportConfig, DebugLevel, Environment
 from .utils import setup_logger
 
 
@@ -13,6 +13,7 @@ class Client:
     def __init__(
         self,
         buster_api_key: Optional[str] = None,
+        env: Optional[Environment] = None,
         airflow_config: Optional[AirflowReportConfig] = None,
         debug: Optional[DebugLevel] = None,
     ):
@@ -21,6 +22,10 @@ class Client:
         # Setup logger based on debug level
         self.logger = setup_logger("buster", debug)
         self.logger.debug("Initializing Buster SDK client...")
+
+        # Set environment (default to PRODUCTION if not provided)
+        self.env = env or Environment.PRODUCTION
+        self.logger.debug(f"Environment set to: {self.env.value}")
 
         # 1. Try param
         self._buster_api_key = buster_api_key

@@ -62,8 +62,10 @@ class AirflowV3:
         config = self._config
         airflow_version = config.get("airflow_version")
         api_version = config.get("api_version", ApiVersion.V2)
-        env = config.get("env", Environment.PRODUCTION)
         send_when_retries_exhausted = config.get("send_when_retries_exhausted", True)
+
+        # Use env from client (set at client level)
+        env = self.client.env
 
         # Logic to check if we should send the event based on retries
         if send_when_retries_exhausted and try_number is not None:

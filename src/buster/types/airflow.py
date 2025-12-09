@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional, TypedDict
 
-from .api import ApiVersion, Environment
+from .api import ApiVersion
 
 
 class AirflowEventType(str, Enum):
@@ -33,5 +33,4 @@ class AirflowContext(TypedDict):
 class AirflowReportConfig(TypedDict, total=False):
     airflow_version: Optional[str]
     api_version: ApiVersion
-    env: Environment
     send_when_retries_exhausted: bool
