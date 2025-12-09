@@ -23,3 +23,6 @@ publish: build
 
 publish-test: build
 	uv publish --publish-url https://test.pypi.org/legacy/
+
+version-dry-run:
+	uv run semantic-release version --print
