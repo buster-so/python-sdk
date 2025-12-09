@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "A Python SDK for Buster"
 readme = "README.md"
 authors = [
-  { name = "Buster", email = "hello@buster.so" },
+  { name = "Buster", email = "support@buster.so" },
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -42,3 +42,13 @@ python_version = "3.9"
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+[tool.semantic_release]
+version_variable = [
+    "pyproject.toml:version"
+]
+branch = "main"
+upload_to_pypi = false
+upload_to_release = true
+build_command = "pip install build && python -m build"
+
