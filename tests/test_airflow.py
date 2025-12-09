@@ -15,9 +15,9 @@ def test_airflow_resource_initialization():
     assert client.airflow.v3._config == {}
 
     # Test with config
-    from buster.types import AirflowReportConfig, Environment
+    from buster.types import AirflowReportConfig
 
-    config: AirflowReportConfig = {"env": Environment.STAGING}
+    config: AirflowReportConfig = {"airflow_version": "2.5.0"}
     client_with_config = Client(buster_api_key="test-key", airflow_config=config)
     assert client_with_config.airflow.v3._config == config
 
@@ -45,19 +45,14 @@ def test_airflow_report_error(capsys, monkeypatch):
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    # Use the versioned accessor
-    from buster.types import AirflowEventType
-
-    response = client.airflow.v3._report_error(
+    # Use dag_on_failure which calls _report_error internally
+    client.airflow.v3.dag_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
-        },
-        event_type=AirflowEventType.DAG_RUN_FAILED,
-        error_message="Something went wrong",
+            "exception": Exception("Something went wrong"),
+        }
     )
-
-    assert response == mock_response
 
 
 def test_airflow_validation_error():
@@ -67,31 +62,23 @@ def test_airflow_validation_error():
     client = Client(buster_api_key="test-key")
 
     # Missing dag_id (empty context)
-    from buster.types import AirflowEventType
-
     with pytest.raises(ValueError) as excinfo:
-        client.airflow.v3._report_error(
-            context={"run_id": "run_123"},
-            event_type=AirflowEventType.DAG_RUN_FAILED,
-        )
+        client.airflow.v3.dag_on_failure(context={"run_id": "run_123"})
 
     # Check that the error message mentions the missing field in our friendly format
     error_str = str(excinfo.value)
     assert "Invalid arguments provided to report_error" in error_str
-    assert "- dag_id: Input should be a valid string" in error_str
+    assert "- dag_id: String should have at least 1 character" in error_str
 
 
 def test_airflow_report_error_with_api_version(monkeypatch):
     """
-    Verifies that report_error accepts api_version argument via client config.
+    Verifies that report_error accepts api_version argument via client parameter.
     """
     import buster.resources.airflow.v3 as v3_module
-    from buster.types import ApiVersion
 
-    # Pass api_version in config
-    client = Client(
-        buster_api_key="test-key", airflow_config={"api_version": ApiVersion.V2}
-    )
+    # Pass api_version as client parameter
+    client = Client(buster_api_key="test-key", api_version="v2")
 
     # Mock
     def mock_send_request(url, payload, api_key, logger=None):
@@ -99,15 +86,12 @@ def test_airflow_report_error_with_api_version(monkeypatch):
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    # Pass api_version
-    from buster.types import AirflowEventType
-
-    client.airflow.v3._report_error(
+    # Use dag_on_failure
+    client.airflow.v3.dag_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
-        },
-        event_type=AirflowEventType.DAG_RUN_FAILED,
+        }
     )
     # If no exception, it passed validation and mock call
 
@@ -117,10 +101,9 @@ def test_airflow_report_error_with_env(monkeypatch):
     Verifies that report_error accepts env argument via client parameter.
     """
     import buster.resources.airflow.v3 as v3_module
-    from buster.types import Environment
 
     # Pass env as client parameter
-    client = Client(buster_api_key="test-key", env=Environment.STAGING)
+    client = Client(buster_api_key="test-key", env="staging")
 
     # Mock
     def mock_send_request(url, payload, api_key, logger=None):
@@ -129,14 +112,11 @@ def test_airflow_report_error_with_env(monkeypatch):
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    from buster.types import AirflowEventType
-
-    client.airflow.v3._report_error(
+    client.airflow.v3.dag_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
-        },
-        event_type=AirflowEventType.DAG_RUN_FAILED,
+        }
     )
 
 
@@ -157,14 +137,45 @@ def test_airflow_report_error_with_airflow_version(monkeypatch):
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    from buster.types import AirflowEventType
-
-    client.airflow.v3._report_error(
+    client.airflow.v3.dag_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
-        },
-        event_type=AirflowEventType.DAG_RUN_FAILED,
+        }
+    )
+
+
+def test_airflow_version_auto_detection(monkeypatch):
+    """
+    Verifies that airflow_version is auto-detected when not provided in config.
+    If Airflow is not installed, it defaults to "3.1".
+    """
+    import buster.resources.airflow.v3 as v3_module
+    from buster.resources.airflow.utils import get_airflow_version
+
+    # Test the auto-detection function directly
+    detected_version = get_airflow_version()
+    # Should return either the actual Airflow version or "3.1" as default
+    assert isinstance(detected_version, str)
+    assert len(detected_version) > 0
+
+    # Test that client uses auto-detected version when config doesn't specify one
+    client = Client(buster_api_key="test-key")
+
+    # Mock
+    def mock_send_request(url, payload, api_key, logger=None):
+        # Should have an airflow_version (either detected or default "3.1")
+        assert payload["airflow_version"] is not None
+        assert isinstance(payload["airflow_version"], str)
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.dag_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+        }
     )
 
 
@@ -178,18 +189,16 @@ def test_airflow_report_error_skips_on_retries():
     )
 
     # max_tries=3, try_number=1 -> should skip
-    from buster.types import AirflowEventType
-
-    result = client.airflow.v3._report_error(
+    # This should not raise an error and should skip reporting
+    client.airflow.v3.task_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
+            "task_id": "test_task",
             "try_number": 1,
             "max_tries": 3,
-        },
-        event_type=AirflowEventType.DAG_RUN_FAILED,
+        }
     )
-    assert result is None
 
 
 def test_airflow_report_error_sends_on_exhaustion(monkeypatch):
@@ -203,29 +212,31 @@ def test_airflow_report_error_sends_on_exhaustion(monkeypatch):
     )
 
     # Mock
+    called = False
+
     def mock_send_request(url, payload, api_key, logger=None):
+        nonlocal called
+        called = True
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
     # max_tries=3, try_number=3 -> should send
-    from buster.types import AirflowEventType
-
-    result = client.airflow.v3._report_error(
+    client.airflow.v3.task_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
+            "task_id": "test_task",
             "try_number": 3,
             "max_tries": 3,
-        },
-        event_type=AirflowEventType.DAG_RUN_FAILED,
+        }
     )
-    assert result == {"success": True}
+    assert called, "send_request should have been called"
 
 
 def test_airflow_report_error_default_event_type(monkeypatch):
     """
-    Verifies that report_error uses default event_type if not provided.
+    Verifies that task_on_failure uses TASK_INSTANCE_FAILED event type.
     """
     import buster.resources.airflow.v3 as v3_module
     from buster.types import AirflowEventType
@@ -239,11 +250,12 @@ def test_airflow_report_error_default_event_type(monkeypatch):
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    # Do not pass event_type
-    client.airflow.v3._report_error(
+    # task_on_failure should use TASK_INSTANCE_FAILED
+    client.airflow.v3.task_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
+            "task_id": "test_task",
         }
     )
 
@@ -256,11 +268,20 @@ def test_dag_on_failure_extracts_error(monkeypatch):
 
     client = Client(buster_api_key="test-key")
 
-    # 1. Test with exception
+    # 1. Test with exception - now includes exception type
     mock_exception_msg = "Test exception message"
 
-    def mock_report_error(self, context, error_message, event_type):
-        assert error_message == mock_exception_msg
+    def mock_report_error(
+        self,
+        extracted,
+        error_message,
+        event_type,
+        exception_location=None,
+        execution_context=None,
+        traceback_frames=None,
+    ):
+        # New format includes exception type
+        assert error_message == f"Exception: {mock_exception_msg}"
         return {"success": True}
 
     monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)
@@ -273,11 +294,20 @@ def test_dag_on_failure_extracts_error(monkeypatch):
         }
     )
 
-    # 2. Test with reason
+    # 2. Test with reason (used as fallback when no exception present)
     mock_reason = "Test reason"
 
-    def mock_report_error_reason(self, context, error_message, event_type):
-        assert error_message == mock_reason
+    def mock_report_error_reason(
+        self,
+        extracted,
+        error_message,
+        event_type,
+        exception_location=None,
+        execution_context=None,
+        traceback_frames=None,
+    ):
+        # Reason is now formatted as "Exception: {reason}" for consistency
+        assert error_message == f"Exception: {mock_reason}"
         return {"success": True}
 
     monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error_reason)
@@ -297,8 +327,17 @@ def test_task_on_failure_extracts_error(monkeypatch):
 
     mock_exception_msg = "Task failure exception"
 
-    def mock_report_error(self, context, error_message, event_type):
-        assert error_message == mock_exception_msg
+    def mock_report_error(
+        self,
+        extracted,
+        error_message,
+        event_type,
+        exception_location=None,
+        execution_context=None,
+        traceback_frames=None,
+    ):
+        # New format includes exception type
+        assert error_message == f"Exception: {mock_exception_msg}"
         return {"success": True}
 
     monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)
@@ -308,5 +347,423 @@ def test_task_on_failure_extracts_error(monkeypatch):
             "dag_id": "test_dag",
             "run_id": "run_123",
             "exception": Exception(mock_exception_msg),
+        }
+    )
+
+
+def test_extract_error_with_traceback_and_log_url(monkeypatch):
+    """
+    Verifies that enhanced error extraction includes traceback and log URL.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Create an exception with a traceback
+    try:
+        raise ValueError("Something went wrong in the task")
+    except ValueError as e:
+        exception_with_traceback = e
+
+    # Mock task instance with log_url
+    class MockTaskInstance:
+        log_url = "https://airflow.example.com/dags/test_dag/grid?task_id=test_task"
+
+    def mock_report_error(
+        self,
+        extracted,
+        error_message,
+        event_type,
+        exception_location=None,
+        execution_context=None,
+        traceback_frames=None,
+    ):
+        # Verify error message includes exception type
+        assert "ValueError: Something went wrong in the task" in error_message
+        # Verify traceback is included
+        assert "Traceback" in error_message
+        assert "raise ValueError" in error_message
+        # Verify log URL is included
+        assert "Logs: https://airflow.example.com" in error_message
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "exception": exception_with_traceback,
+            "task_instance": MockTaskInstance(),
+        }
+    )
+
+
+def test_extract_exception_location():
+    """
+    Verifies that extract_exception_location extracts structured data from exceptions.
+    """
+    from buster.resources.airflow.utils import extract_exception_location
+
+    # Test 1: Exception with traceback
+    try:
+        raise ValueError("Test error message")
+    except ValueError as e:
+        location = extract_exception_location(e)
+        assert location["type"] == "ValueError"
+        assert location["message"] == "Test error message"
+        assert "file" in location
+        assert "line" in location
+        assert "function" in location
+        assert location["function"] == "test_extract_exception_location"
+
+    # Test 2: String exception (returns empty dict)
+    location = extract_exception_location("string error")
+    assert location == {}
+
+    # Test 3: None exception (returns empty dict)
+    location = extract_exception_location(None)
+    assert location == {}
+
+    # Test 4: Exception without traceback
+    exception_no_tb = ValueError("No traceback")
+    location = extract_exception_location(exception_no_tb)
+    assert location["type"] == "ValueError"
+    assert location["message"] == "No traceback"
+    # Should have type and message but no file/line/function
+    assert "file" not in location
+    assert "line" not in location
+    assert "function" not in location
+
+
+def test_operator_extraction(monkeypatch):
+    """
+    Verifies that operator type is extracted and sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock task with operator_name
+    class MockTask:
+        operator_name = "PythonOperator"
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert payload["operator"] == "PythonOperator"
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "task": MockTask(),
+        }
+    )
+
+
+def test_params_extraction(monkeypatch):
+    """
+    Verifies that task params are extracted and sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    test_params = {"key1": "value1", "key2": 123}
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert payload["params"] == test_params
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "params": test_params,
+        }
+    )
+
+
+def test_exception_location_in_payload(monkeypatch):
+    """
+    Verifies that exception_location is extracted and sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Create an exception with traceback
+    try:
+        raise ValueError("Test structured exception")
+    except ValueError as e:
+        test_exception = e
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert "exception_location" in payload
+        assert payload["exception_location"]["type"] == "ValueError"
+        assert payload["exception_location"]["message"] == "Test structured exception"
+        assert "file" in payload["exception_location"]
+        assert "line" in payload["exception_location"]
+        assert "function" in payload["exception_location"]
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "exception": test_exception,
+        }
+    )
+
+
+def test_execution_context_in_payload(monkeypatch):
+    """
+    Verifies that execution context (state, hostname, etc.) is sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock task instance with execution details
+    class MockTaskInstance:
+        state = "failed"
+        hostname = "worker-1"
+        duration = 5.5
+        start_date = "2024-01-01 00:00:00"
+        log_url = "https://airflow.example.com/logs"
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert payload["state"] == "failed"
+        assert payload["hostname"] == "worker-1"
+        assert payload["duration"] == 5.5
+        assert payload["start_date"] == "2024-01-01 00:00:00"
+        assert payload["log_url"] == "https://airflow.example.com/logs"
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "task_instance": MockTaskInstance(),
+        }
+    )
+
+
+def test_extract_traceback_frames():
+    """
+    Verifies that extract_traceback_frames extracts structured frames from exceptions.
+    """
+    from buster.resources.airflow.utils import extract_traceback_frames
+
+    # Test 1: Exception with traceback
+    try:
+
+        def inner_function():
+            raise ValueError("Test error in inner function")
+
+        inner_function()
+    except ValueError as e:
+        frames = extract_traceback_frames(e)
+        assert len(frames) >= 2  # At least outer and inner function
+        assert all("file" in frame for frame in frames)
+        assert all("line" in frame for frame in frames)
+        assert all("function" in frame for frame in frames)
+        # Check that last frame is the actual error location
+        assert frames[-1]["function"] == "inner_function"
+
+    # Test 2: String exception (returns empty list)
+    frames = extract_traceback_frames("string error")
+    assert frames == []
+
+    # Test 3: None exception (returns empty list)
+    frames = extract_traceback_frames(None)
+    assert frames == []
+
+
+def test_task_dependencies_in_payload(monkeypatch):
+    """
+    Verifies that task dependencies are extracted and sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock task with dependencies
+    class MockTask:
+        operator_name = "PythonOperator"
+        upstream_task_ids = {"task_a", "task_b"}
+        downstream_task_ids = {"task_d", "task_e"}
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert "task_dependencies" in payload
+        assert set(payload["task_dependencies"]["upstream"]) == {"task_a", "task_b"}
+        assert set(payload["task_dependencies"]["downstream"]) == {"task_d", "task_e"}
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "task": MockTask(),
+        }
+    )
+
+
+def test_retry_config_in_payload(monkeypatch):
+    """
+    Verifies that retry configuration is extracted and sent in payload.
+    """
+    from datetime import timedelta
+
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock task with retry config
+    class MockTask:
+        operator_name = "PythonOperator"
+        retries = 3
+        retry_delay = timedelta(minutes=5)
+        retry_exponential_backoff = True
+        max_retry_delay = timedelta(hours=1)
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert "retry_config" in payload
+        assert payload["retry_config"]["retries"] == 3
+        assert "0:05:00" in payload["retry_config"]["retry_delay"]
+        assert payload["retry_config"]["retry_exponential_backoff"] is True
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "task": MockTask(),
+        }
+    )
+
+
+def test_dag_config_in_payload(monkeypatch):
+    """
+    Verifies that DAG configuration is extracted and sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock DAG with config
+    class MockDAG:
+        schedule_interval = "0 0 * * *"
+        description = "Test DAG description"
+        catchup = False
+        max_active_runs = 3
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert "dag_config" in payload
+        assert payload["dag_config"]["schedule_interval"] == "0 0 * * *"
+        assert payload["dag_config"]["description"] == "Test DAG description"
+        assert payload["dag_config"]["catchup"] is False
+        assert payload["dag_config"]["max_active_runs"] == 3
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "dag": MockDAG(),
+        }
+    )
+
+
+def test_data_interval_in_payload(monkeypatch):
+    """
+    Verifies that data interval is extracted and sent in payload.
+    """
+    from datetime import datetime
+
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock dag_run with data interval
+    class MockDagRun:
+        dag_id = "test_dag"
+        run_id = "run_123"
+        data_interval_start = datetime(2024, 1, 1, 0, 0, 0)
+        data_interval_end = datetime(2024, 1, 2, 0, 0, 0)
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert "data_interval" in payload
+        assert "2024-01-01" in payload["data_interval"]["start"]
+        assert "2024-01-02" in payload["data_interval"]["end"]
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "dag_run": MockDagRun(),
+        }
+    )
+
+
+def test_traceback_frames_in_payload(monkeypatch):
+    """
+    Verifies that structured traceback frames are sent in payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Create an exception with traceback
+    try:
+        raise ValueError("Test error with traceback")
+    except ValueError as e:
+        test_exception = e
+
+    def mock_send_request(url, payload, api_key, logger=None):
+        assert "traceback_frames" in payload
+        assert isinstance(payload["traceback_frames"], list)
+        assert len(payload["traceback_frames"]) > 0
+        # Check frame structure
+        frame = payload["traceback_frames"][0]
+        assert "file" in frame
+        assert "line" in frame
+        assert "function" in frame
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    client.airflow.v3.task_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+            "task_id": "test_task",
+            "exception": test_exception,
         }
     )

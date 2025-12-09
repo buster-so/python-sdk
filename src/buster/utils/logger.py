@@ -73,15 +73,15 @@ def setup_logger(name: str, debug_level: Optional[DebugLevel] = None) -> logging
 
     # Map DebugLevel to logging levels
     level_map = {
-        DebugLevel.OFF: logging.CRITICAL + 1,  # Effectively disable logging
-        DebugLevel.ERROR: logging.ERROR,
-        DebugLevel.WARN: logging.WARNING,
-        DebugLevel.INFO: logging.INFO,
-        DebugLevel.DEBUG: logging.DEBUG,
+        "off": logging.CRITICAL + 1,  # Effectively disable logging
+        "error": logging.ERROR,
+        "warn": logging.WARNING,
+        "info": logging.INFO,
+        "debug": logging.DEBUG,
     }
 
     # Set the logging level
-    if debug_level and debug_level != DebugLevel.OFF:
+    if debug_level and debug_level != "off":
         logger.setLevel(level_map.get(debug_level, logging.INFO))
 
         # Create console handler - use stdout for INFO/DEBUG, stderr for warnings/errors

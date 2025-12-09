@@ -71,12 +71,12 @@ Logs are color-coded in your terminal for easy scanning:
 You can customize the client behavior by passing optional configuration parameters.
 
 ```python
-from buster import Client, DebugLevel
-from buster.types import Environment
+from buster import Client, DebugLevel, Environment, ApiVersion
 
 client = Client(
     buster_api_key="your-secret-key",
     env=Environment.STAGING,  # Optional: default is PRODUCTION
+    api_version=ApiVersion.V2,  # Optional: default is V2
     airflow_config={
         "send_when_retries_exhausted": True
     },
@@ -94,7 +94,8 @@ client = Client(
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `buster_api_key` | `str` | `None` | Your Buster API key. If not provided, will use `BUSTER_API_KEY` environment variable. |
-| `env` | `Environment` | `PRODUCTION` | The target environment (`PRODUCTION`, `STAGING`, `DEVELOPMENT`). |
+| `env` | `Environment` | `Environment.PRODUCTION` | The target environment. Available: `Environment.PRODUCTION`, `Environment.STAGING`, `Environment.DEVELOPMENT`. |
+| `api_version` | `ApiVersion` | `ApiVersion.V2` | The Buster API version to use. Available: `ApiVersion.V2`. |
 | `debug` | `DebugLevel` | `None` | Enable debug logging (`DEBUG`, `INFO`, `WARN`, `ERROR`, `OFF`). |
 
 **Airflow-specific configuration:**
@@ -103,8 +104,7 @@ The `airflow_config` dictionary accepts the following optional keys:
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `api_version` | `ApiVersion` | `V2` | The Buster API version to use. |
-| `airflow_version` | `str` | `None` | **Optional**. Manually override the detected Airflow version. |
+| `airflow_version` | `str` | Auto-detected (defaults to `"3.1"`) | **Optional**. Manually override the auto-detected Airflow version. The SDK automatically detects the installed Airflow version via `airflow.__version__`. If detection fails, defaults to `"3.1"`. |
 | `send_when_retries_exhausted` | `bool` | `True` | If `True`, only reports errors when the task has exhausted all retries. |
 
 > [!NOTE]

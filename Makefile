@@ -33,3 +33,11 @@ publish-test: build
 
 version-dry-run:
 	uv run semantic-release version --print
+
+all:
+	make format
+	make build
+	make typecheck
+	make lint
+	make test
+	

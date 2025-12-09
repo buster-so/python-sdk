@@ -1,11 +1,5 @@
-from enum import Enum
+from typing import Literal
 
-
-class DebugLevel(str, Enum):
-    """Debug level enumeration for controlling logging verbosity."""
-
-    OFF = "off"
-    ERROR = "error"
-    WARN = "warn"
-    INFO = "info"
-    DEBUG = "debug"
+# Debug logging level literal type
+# Ordered from least to most verbose: off < error < warn < info < debug
+DebugLevel = Literal["off", "error", "warn", "info", "debug"]

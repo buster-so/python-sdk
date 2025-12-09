@@ -1,8 +1,8 @@
 from typing import Optional
 
 from .resources.airflow import AirflowResource
-from .types import AirflowReportConfig, DebugLevel, Environment
-from .utils import setup_logger
+from .types import AirflowReportConfig, ApiVersion, DebugLevel, Environment
+from .utils import get_buster_url, setup_logger
 
 
 class Client:
@@ -14,6 +14,7 @@ class Client:
         self,
         buster_api_key: Optional[str] = None,
         env: Optional[Environment] = None,
+        api_version: Optional[ApiVersion] = None,
         airflow_config: Optional[AirflowReportConfig] = None,
         debug: Optional[DebugLevel] = None,
     ):
@@ -23,9 +24,14 @@ class Client:
         self.logger = setup_logger("buster", debug)
         self.logger.debug("Initializing Buster SDK client...")
 
-        # Set environment (default to PRODUCTION if not provided)
-        self.env = env or Environment.PRODUCTION
-        self.logger.debug(f"Environment set to: {self.env.value}")
+        # Set environment (default to production if not provided)
+        self.env = env or "production"
+        # Set API version (default to v2 if not provided)
+        self.api_version = api_version or "v2"
+        base_url = get_buster_url(self.env, self.api_version)
+        self.logger.debug(f"Environment: {self.env}")
+        self.logger.debug(f"API Version: {self.api_version}")
+        self.logger.debug(f"Base URL: {base_url}")
 
         # 1. Try param
         self._buster_api_key = buster_api_key
@@ -54,5 +60,5 @@ class Client:
 
         self.logger.info(
             f"✓ Buster SDK client initialized successfully "
-            f"(debug level: {debug.value if debug else 'off'})"
+            f"(debug level: {debug if debug else 'off'})"
         )

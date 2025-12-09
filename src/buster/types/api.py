@@ -1,11 +1,9 @@
-from enum import Enum
+from typing import Literal
 
+AirflowFlowVersion = Literal["2.5.0", "3.1"]
 
-class ApiVersion(str, Enum):
-    V2 = "v2"
+# API version literal type - currently only v2 is supported
+ApiVersion = Literal["v2"]
 
-
-class Environment(str, Enum):
-    PRODUCTION = "production"
-    DEVELOPMENT = "development"
-    STAGING = "staging"
+# Environment literal type for API endpoints
+Environment = Literal["production", "development", "staging", "development-local"]

@@ -9,8 +9,8 @@ import sys
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 
-from src.buster import Client, DebugLevel
-from src.buster.types import AirflowContext
+from src.buster import Client
+from src.buster.types import AirflowCallbackContext
 
 print("\n" + "=" * 80)
 print("DETAILED FLOW: Airflow Task Failure Reporting (DEBUG Level)")
@@ -22,7 +22,7 @@ print("Step 1: Creating Buster client with DEBUG level...")
 print("-" * 80)
 client = Client(
     buster_api_key="test_api_key_for_demo",
-    debug=DebugLevel.DEBUG,
+    debug="debug",
 )
 
 # Simulate a task failure with retries exhausted
@@ -30,7 +30,7 @@ print("\n" + "=" * 80)
 print("Step 2: Simulating task failure with retries exhausted...")
 print("-" * 80)
 
-context: AirflowContext = {
+context: AirflowCallbackContext = {
     "dag_id": "data_pipeline",
     "run_id": "scheduled__2024-01-15T10:00:00+00:00",
     "task_id": "transform_user_data",
