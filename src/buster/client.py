@@ -10,20 +10,16 @@ class Client:
         import os
         
         # 1. Try param
-        self.buster_api_key = buster_api_key
+        self._buster_api_key = buster_api_key
         
         # 2. Try env var
-        if not self.buster_api_key:
-            self.buster_api_key = os.environ.get("BUSTER_API_KEY")
+        if not self._buster_api_key:
+            self._buster_api_key = os.environ.get("BUSTER_API_KEY")
             
         # 3. Fail if missing
-        if not self.buster_api_key:
+        if not self._buster_api_key:
             raise ValueError("Buster API key must be provided via 'buster_api_key' param or 'BUSTER_API_KEY' environment variable.")
             
         self.airflow = AirflowResource(self, config=airflow_config)
     
-    def hello(self):
-        """
-        A simple test method.
-        """
-        return "Hello from Buster SDK!"
+

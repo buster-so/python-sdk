@@ -82,7 +82,7 @@ class AirflowV3:
             
             # Send the request
             from typing import cast, Dict, Any
-            return send_request(url, cast(Dict[str, Any], request_payload), self.client.buster_api_key)
+            return send_request(url, cast(Dict[str, Any], request_payload), self.client._buster_api_key)
             
         except ValidationError as e:
             # Create a friendly error message
