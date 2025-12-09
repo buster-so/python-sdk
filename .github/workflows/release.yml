@@ -21,8 +21,9 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
+                  token: ${{ secrets.GH_TOKEN }}
 
             - name: Python Semantic Release
               uses: python-semantic-release/python-semantic-release@master
               with:
-                  github_token: ${{ secrets.GH_VERSION_RELEASE_TOKEN }}
+                  github_token: ${{ secrets.GH_TOKEN }}
