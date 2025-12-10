@@ -91,14 +91,16 @@ class DataInterval(TypedDict, total=False):
 # Use Airflow's Context for static type checking only - avoids runtime import issues
 # across different Airflow versions while maintaining full type safety
 if TYPE_CHECKING:
+    from airflow.models.dagrun import DagRun
     from airflow.sdk.definitions.context import Context as AirflowCallbackContext
-    from airflow.sdk.definitions.runtime_ti import RuntimeTaskInstance
+    from airflow.sdk.execution_time.task_runner import RuntimeTaskInstance
     from airflow.utils.state import TaskInstanceState
 else:
     # At runtime, any dict-like context works - we use Protocol checks for extraction
     AirflowCallbackContext = dict
-    RuntimeTaskInstance = object  # type: ignore
-    TaskInstanceState = object  # type: ignore
+    RuntimeTaskInstance = object  # type: ignore[misc, assignment]
+    TaskInstanceState = object  # type: ignore[misc, assignment]
+    DagRun = object  # type: ignore[misc, assignment]
 
 
 class AirflowEventType(str, Enum):
