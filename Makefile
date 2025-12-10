@@ -26,7 +26,7 @@ clean:
 	rm -rf *.egg-info
 
 publish: build
-	uv publish
+	uv publish --token ${{ secrets.PYPI_TOKEN }}
 
 publish-test: build
 	uv publish --publish-url https://test.pypi.org/legacy/
