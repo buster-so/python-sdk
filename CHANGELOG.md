@@ -5,6 +5,9 @@
 
 ### Bug Fixes
 
+- Missing version tags
+  ([`a3220f5`](https://github.com/buster-so/python-sdk/commit/a3220f574e533552beb8a4b9de53110ef65b149e))
+
 - Update build command
   ([`a75842d`](https://github.com/buster-so/python-sdk/commit/a75842dc81c9c7082c6666c07bed8844c4c819d7))
 
