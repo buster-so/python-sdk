@@ -57,4 +57,4 @@ class Client:
 
         self.airflow = AirflowResource(self, config=airflow_config)
 
-        self.logger.info(f"✓ Buster SDK client initialized successfully (debug level: {debug if debug else 'off'})")
+        self.logger.info(f"✓ Buster SDK client initialized (debug level: {debug if debug else 'off'})")
