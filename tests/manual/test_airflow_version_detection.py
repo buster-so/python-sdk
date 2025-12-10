@@ -58,7 +58,7 @@ def test_client_usage():
         buster_api_key="test-key", airflow_config={"airflow_version": "2.5.0"}
     )
     print(f"   Config: {client3.airflow.v3._config}")
-    print(f"   Will use config value: 2.5.0")
+    print("   Will use config value: 2.5.0")
 
     print("\n" + "=" * 80)
     print("✓ All scenarios working correctly!")

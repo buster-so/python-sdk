@@ -15,20 +15,34 @@ from buster.types.api import AirflowFlowVersion
 from buster.utils import get_buster_url
 
 
-def get_airflow_version(flow_version: Optional[AirflowFlowVersion] = "3.1") -> str:
+def get_airflow_version(flow_version: AirflowFlowVersion = "3.1") -> str:
     """
-    Attempts to detect the installed Airflow version.
+    Attempts to detect the installed Airflow version using the official pattern.
+
+    This follows the same approach used by Apache Airflow's official provider packages:
+    https://airflow.apache.org/docs/apache-airflow-providers/
 
     Returns:
         The Airflow version string (e.g., "2.5.0" or "3.1")
     """
     try:
-        import airflow
+        # Try importing __version__ directly (preferred method)
+        from airflow import (  # type: ignore[import-not-found] # pyright: ignore[reportMissingImports]
+            __version__ as airflow_version,
+        )
 
-        return airflow.__version__
-    except (ImportError, AttributeError):
-        # Airflow not installed or version not available, use default
-        return flow_version
+        return str(airflow_version)
+    except ImportError:
+        try:
+            # Fallback to airflow.version.version (used in some environments)
+            from airflow.version import (  # type: ignore[import-not-found] # pyright: ignore[reportMissingImports]
+                version as airflow_version,
+            )
+
+            return str(airflow_version)
+        except (ImportError, AttributeError):
+            # Airflow not installed or version not available, use default
+            return flow_version
 
 
 def get_airflow_v3_url(env: Environment, api_version: ApiVersion) -> str:
