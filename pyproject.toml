@@ -14,7 +14,7 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.7"
-dependencies = ["requests", "pydantic>=2.0.0"]
+dependencies = ["requests", "pydantic>=2.0.0", "typing-extensions>=4.0.0"]
 
 [project.optional-dependencies]
 dev = ["pytest", "twine", "build", "mypy", "types-requests", "ruff"]

@@ -6,9 +6,10 @@ from typing import (
     List,
     Optional,
     Protocol,
-    TypedDict,
     runtime_checkable,
 )
+
+from typing_extensions import TypedDict
 
 # Structured types for Airflow event data
 
@@ -208,5 +209,4 @@ class AirflowReportConfig(TypedDict, total=False):
     with airflow_config parameter.
     """
 
-    airflow_version: Optional[str]
     send_when_retries_exhausted: bool

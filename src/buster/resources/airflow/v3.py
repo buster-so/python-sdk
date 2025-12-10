@@ -185,8 +185,8 @@ class AirflowV3:
 
         # Extract values from config with defaults
         config = self._config
-        # Try to get airflow_version from config, otherwise detect it automatically
-        airflow_version = config.get("airflow_version") or get_airflow_version()
+        # Auto-detect airflow version
+        airflow_version = get_airflow_version()
         send_when_retries_exhausted = config.get("send_when_retries_exhausted", True)
 
         # Use env and api_version from client (set at client level)

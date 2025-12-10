@@ -4,229 +4,194 @@ The official Python SDK for Buster.
 
 ## Installation
 
-Install the package via pip:
-
 ```bash
 pip install buster-sdk
 ```
 
-## Authentication
+## Quick Start
 
-You need a Buster API Key to use the SDK. You can provide it in one of two ways:
+Set your API key and add Buster to your Airflow DAG:
 
-1.  **Environment Variable (Recommended)**: Set `BUSTER_API_KEY`.
-    ```bash
-    export BUSTER_API_KEY="your-secret-key"
-    ```
-    ```python
-    client = Client()
-    ```
-
-2.  **Constructor Parameter**: Pass `buster_api_key` directly.
-    ```python
-    client = Client(buster_api_key="your-secret-key")
-    ```
-
-## Debug Logging
-
-The SDK includes comprehensive logging to help you debug issues. Enable it by passing the `debug` parameter when initializing the client:
-
-```python
-from buster import Client, DebugLevel
-
-# Enable DEBUG level logging (most verbose)
-client = Client(
-    buster_api_key="your-secret-key",
-    debug=DebugLevel.DEBUG
-)
-
-# Or use INFO level for less verbose output
-client = Client(
-    buster_api_key="your-secret-key",
-    debug=DebugLevel.INFO
-)
+```bash
+export BUSTER_API_KEY="your-secret-key"
 ```
 
-### Available Debug Levels
-
-| Level | Description |
-| :--- | :--- |
-| `DebugLevel.OFF` | No logging (default) |
-| `DebugLevel.ERROR` | Only error messages |
-| `DebugLevel.WARN` | Warnings and errors |
-| `DebugLevel.INFO` | General information, warnings, and errors |
-| `DebugLevel.DEBUG` | Detailed debugging information (most verbose) |
-
-Logs are color-coded in your terminal for easy scanning:
-- **DEBUG**: Cyan
-- **INFO**: Green
-- **WARNING**: Yellow
-- **ERROR**: Red
-
-> [!NOTE]
-> Colors are automatically disabled when output is redirected to files or non-terminal environments.
-
-## Configuration (Optional)
-
-You can customize the client behavior by passing optional configuration parameters.
-
 ```python
-from buster import Client, DebugLevel, Environment, ApiVersion
+from datetime import datetime
+from airflow import DAG
+from airflow.sdk import task
+from buster import Client
 
-client = Client(
-    buster_api_key="your-secret-key",
-    env=Environment.STAGING,  # Optional: default is PRODUCTION
-    api_version=ApiVersion.V2,  # Optional: default is V2
-    airflow_config={
-        "send_when_retries_exhausted": True
+client = Client()
+
+with DAG(
+    dag_id="my_pipeline",
+    start_date=datetime(2024, 1, 1),
+    schedule="@daily",
+    catchup=False,
+    default_args={
+        "on_failure_callback": client.airflow.v3.task_on_failure,
     },
-    debug=DebugLevel.INFO  # Optional: enable logging
-)
+    on_failure_callback=client.airflow.v3.dag_on_failure,
+) as dag:
+
+    @task
+    def extract():
+        # Your extraction logic
+        pass
+
+    @task
+    def transform():
+        # Your transformation logic
+        pass
+
+    extract() >> transform()
 ```
 
-### Configuration Reference
+## Configuration
 
-> [!NOTE]
-> These configuration options are **rarely needed**. The SDK is designed to work out-of-the-box with sensible defaults (Production environment, V2 API, and auto-detected Airflow version).
-
-**Client-level parameters:**
+### Client Parameters
 
 | Parameter | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `buster_api_key` | `str` | `None` | Your Buster API key. If not provided, will use `BUSTER_API_KEY` environment variable. |
-| `env` | `Environment` | `Environment.PRODUCTION` | The target environment. Available: `Environment.PRODUCTION`, `Environment.STAGING`, `Environment.DEVELOPMENT`. |
-| `api_version` | `ApiVersion` | `ApiVersion.V2` | The Buster API version to use. Available: `ApiVersion.V2`. |
-| `debug` | `DebugLevel` | `None` | Enable debug logging (`DEBUG`, `INFO`, `WARN`, `ERROR`, `OFF`). |
+| `buster_api_key` | `str` | `None` | Your Buster API key. If not provided, uses `BUSTER_API_KEY` environment variable (recommended). |
+| `debug` | `str` | `None` | Enable debug logging: `"off"`, `"error"`, `"warn"`, `"info"`, `"debug"`. |
+| `env` | `str` | `"production"` | Target environment: `"production"`, `"staging"`, `"development"`. Rarely needed. |
+| `api_version` | `str` | `"v2"` | API version. Currently only `"v2"` is supported. Rarely needed. |
+| `airflow_config` | `dict` | `None` | Airflow-specific configuration (see Airflow Integration section). |
 
-**Airflow-specific configuration:**
+### Configuration Examples
 
-The `airflow_config` dictionary accepts the following optional keys:
+**Basic:**
+```python
+from buster import Client
 
-| Key | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `airflow_version` | `str` | Auto-detected (defaults to `"3.1"`) | **Optional**. Manually override the auto-detected Airflow version. The SDK automatically detects the installed Airflow version via `airflow.__version__`. If detection fails, defaults to `"3.1"`. |
-| `send_when_retries_exhausted` | `bool` | `True` | If `True`, only reports errors when the task has exhausted all retries. |
+client = Client()  # Uses BUSTER_API_KEY environment variable
+```
 
-> [!NOTE]
-> If no key is provided via either method, the SDK will raise a `ValueError`.
+**With debug logging:**
+```python
+client = Client(debug="info")
+```
 
-## Usage
+**With explicit API key:**
+```python
+client = Client(buster_api_key="your-secret-key")
+```
 
-### Airflow Integration
+## Integrations
 
-Report errors from your Airflow DAGs using the `airflow.v3` resource.
+### Airflow
+
+Monitor and debug your Airflow DAGs by automatically reporting task and DAG failures to Buster.
+
+#### Basic Setup
+
+Use `default_args` to report all task failures in your DAG:
 
 ```python
-from buster import Client, DebugLevel
+from datetime import datetime
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.sdk import task
+from buster import Client
 
-# 1. Initialize Client (global or imported)
-client = Client(
-    debug=DebugLevel.INFO  # Optional: enable logging
-)
+client = Client()
 
-# 2. Use in DAG definition
 with DAG(
-    dag_id="daily_etl_job",
-    # Report if the entire DAG fails
+    dag_id="my_pipeline",
+    start_date=datetime(2024, 1, 1),
+    schedule="@daily",
+    catchup=False,
+    default_args={
+        "on_failure_callback": client.airflow.v3.task_on_failure,
+    },
     on_failure_callback=client.airflow.v3.dag_on_failure,
-    ...
 ) as dag:
 
-    # 3. Use in Task definition
-    task1 = PythonOperator(
-        task_id="extract_data",
-        python_callable=my_func,
-        # Report if this specific task fails
-        on_failure_callback=client.airflow.v3.task_on_failure
+    @task
+    def my_task():
+        # Your task logic
+        pass
+
+    my_task()
+```
+
+#### Per-Task Callbacks
+
+For more granular control, attach callbacks to specific tasks:
+
+```python
+from airflow import DAG
+from airflow.sdk import task
+from buster import Client
+
+client = Client()
+
+with DAG(dag_id="my_dag", ...) as dag:
+    @task(on_failure_callback=client.airflow.v3.task_on_failure)
+    def critical_task():
+        # Only this task reports failures
+        pass
+```
+
+#### Plugin Integration
+
+For centralized error reporting across all DAGs without modifying individual DAG files, use an Airflow plugin. This approach automatically captures failures from all DAGs in your Airflow instance.
+
+Create a plugin file in your Airflow plugins directory (e.g., `plugins/buster_plugin.py`):
+
+```python
+import sys
+from airflow.plugins_manager import AirflowPlugin
+from airflow.listeners import hookimpl
+from airflow.utils.state import TaskInstanceState
+from airflow.models.dagrun import DagRun
+from buster import Client
+
+client = Client()
+
+try:
+    from airflow.sdk.execution_time.task_runner import RuntimeTaskInstance
+except ImportError:
+    from airflow.models.taskinstance import TaskInstance as RuntimeTaskInstance
+
+@hookimpl
+def on_task_instance_failed(
+    previous_state: TaskInstanceState,
+    task_instance: RuntimeTaskInstance,
+    error: str | BaseException | None,
+):
+    """Event listener for task instance failures."""
+    client.airflow.v3.plugin_task_on_failure(
+        previous_state=previous_state,
+        task_instance=task_instance,
+        error=error,
     )
+
+@hookimpl
+def on_dag_run_failed(dag_run: DagRun, msg: str):
+    """Event listener for DAG run failures."""
+    client.airflow.v3.plugin_dag_on_failure(
+        dag_run=dag_run,
+        msg=msg,
+    )
+
+class BusterPlugin(AirflowPlugin):
+    name = "buster_plugin"
+    listeners = [sys.modules[__name__]]
 ```
 
-**Example log output with `debug=DebugLevel.INFO`:**
-```
-INFO: 📋 Reporting task_instance_failed: dag_id=daily_etl_job, run_id=scheduled_123
-INFO: ✓ Event reported successfully
-```
+**Benefits of plugin approach:**
+- Centralized error reporting for all DAGs
+- No need to modify individual DAG files
+- Automatically captures failures from new DAGs
+- Easier to maintain and update
 
-## Development
+#### Airflow Configuration Options
 
-This project uses `uv` for dependency management and a `Makefile` for common tasks.
+Configure Airflow-specific behavior using the `airflow_config` parameter:
 
-### Prerequisites
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `send_when_retries_exhausted` | `bool` | `True` | If `True`, only reports errors when the task has exhausted all retries. This should rarely be set to false |
 
-You need to have `uv` installed. It is an extremely fast Python package manager written in Rust.
-
-**MacOS / Linux:**
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-**Windows:**
-```powershell
-powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Once installed, restart your terminal.
-
-### Setup
-
-1. **Clone and Install Dependencies**:
-   This will create a virtual environment and install the package in editable mode (`-e`).
-   ```bash
-   make install
-   ```
-
-
-2. **Run Tests**:
-   > [!IMPORTANT]
-   > You should always run the test suite before building or publishing.
-   
-   Run the test suite using `pytest`.
-   ```bash
-   make test
-   ```
-
-3. **Build the Package**:
-   Generates distribution files in `dist/`.
-   ```bash
-   make build
-   ```
-
-4. **Publish**:
-   Uploads the package to PyPI (requires credentials).
-   ```bash
-   uv publish
-   ```
-   > [!IMPORTANT]
-   > PyPI packages are immutable. You **must** increment the `version` in `pyproject.toml` before publishing a new release. You cannot overwrite an existing version.
-
-5. **Publish to TestPyPI (Optional)**:
-   
-   **What is TestPyPI?**
-   [TestPyPI](https://test.pypi.org/) is a separate instance of the Python Package Index that allows you to try out distribution tools and processes without affecting the real PyPI repository. It is a sandbox for testing package publication and installation.
-
-   **Usage:**
-   1. You must create a **separate account** on [TestPyPI](https://test.pypi.org/account/register/). Your credentials from the real PyPI will not work here.
-   2. Create an API token in your TestPyPI account settings.
-   3. Run the following command (you will be prompted for your TestPyPI token):
-      ```bash
-      make publish-test
-      ```
-   4. This command uses `uv` to upload your package to the TestPyPI repository.
-
-   **Installing from TestPyPI:**
-   To use the package from TestPyPI in another project:
-   ```bash
-   pip install --index-url https://test.pypi.org/simple/ --extra-index-url https://pypi.org/simple/ buster-sdk
-   ```
-   > [!NOTE]
-   > We use `--extra-index-url https://pypi.org/simple/` to ensure that any dependencies of `buster-sdk` (like `pydantic`) can be found on the main PyPI index, as they might not be present on TestPyPI.
-
-
-### Project Structure
-
-*   **Package Name (PyPI)**: `buster-sdk`
-*   **Import Name (Python)**: `buster`
-
-Code is located in `src/buster`.

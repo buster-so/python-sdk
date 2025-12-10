@@ -120,29 +120,6 @@ def test_airflow_report_error_with_env(monkeypatch):
     )
 
 
-def test_airflow_report_error_with_airflow_version(monkeypatch):
-    """
-    Verifies that report_error uses airflow_version from client config.
-    """
-    import buster.resources.airflow.v3 as v3_module
-
-    client = Client(buster_api_key="test-key", airflow_config={"airflow_version": "2.5.0"})
-
-    # Mock
-    def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["airflow_version"] == "2.5.0"
-        return {"success": True}
-
-    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
-
-    client.airflow.v3.dag_on_failure(
-        context={
-            "dag_id": "test_dag",
-            "run_id": "run_123",
-        }
-    )
-
-
 def test_airflow_version_auto_detection(monkeypatch):
     """
     Verifies that airflow_version is auto-detected when not provided in config.
