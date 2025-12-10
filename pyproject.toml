@@ -51,6 +51,7 @@ ignore_missing_imports = true
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 build_command = "pip install build && python -m build"
+tag_format = "v{version}"
 
 [tool.semantic_release.branches.main]
 match = "main"
