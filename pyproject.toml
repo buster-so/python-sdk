@@ -17,7 +17,15 @@ requires-python = ">=3.9"
 dependencies = ["requests", "pydantic>=2.0.0", "typing-extensions>=4.0.0"]
 
 [project.optional-dependencies]
-dev = ["pytest", "twine", "build", "mypy", "types-requests", "ruff", "python-semantic-release"]
+dev = [
+    "pytest",
+    "twine",
+    "build",
+    "mypy",
+    "types-requests",
+    "ruff",
+    "python-semantic-release",
+]
 
 [tool.ruff]
 line-length = 125
@@ -42,7 +50,7 @@ ignore_missing_imports = true
 
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
-build_command = "uv build"
+build_command = "pip install build && python -m build"
 
 [tool.semantic_release.branches.main]
 match = "main"
