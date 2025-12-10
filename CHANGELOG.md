@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.0.2 (2025-12-10)
+
+### Bug Fixes
+
+- Trigger update flow
+  ([`bfe3c09`](https://github.com/buster-so/python-sdk/commit/bfe3c09290fbcc382f585a578a17cdec2cd07c8d))
+
+
 ## v0.0.1 (2025-12-10)
 
 ### Bug Fixes
