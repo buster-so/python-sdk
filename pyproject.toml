@@ -7,37 +7,25 @@ name = "buster-sdk"
 version = "0.0.1"
 description = "A Python SDK for Buster"
 readme = "README.md"
-authors = [
-  { name = "Buster", email = "support@buster.so" },
-]
+authors = [{ name = "Buster", email = "support@buster.so" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
 requires-python = ">=3.7"
-dependencies = [
-    "requests",
-    "pydantic>=2.0.0",
-]
+dependencies = ["requests", "pydantic>=2.0.0"]
 
 [project.optional-dependencies]
-dev = [
-    "pytest",
-    "twine",
-    "build",
-    "mypy",
-    "types-requests",
-    "ruff"
-]
+dev = ["pytest", "twine", "build", "mypy", "types-requests", "ruff"]
 
 [tool.ruff]
-line-length = 88
+line-length = 125
 target-version = "py37"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-ignore = []
+ignore = ["E501"]        # Ignore line length errors
 
 [project.urls]
 "Homepage" = "https://github.com/buster-so/buster"
@@ -53,11 +41,8 @@ warn_unused_configs = true
 ignore_missing_imports = true
 
 [tool.semantic_release]
-version_variable = [
-    "pyproject.toml:version"
-]
+version_variable = ["pyproject.toml:version"]
 branch = "main"
 upload_to_pypi = true
 upload_to_release = true
 build_command = "pip install build && python -m build"
-

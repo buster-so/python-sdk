@@ -126,9 +126,7 @@ def test_airflow_report_error_with_airflow_version(monkeypatch):
     """
     import buster.resources.airflow.v3 as v3_module
 
-    client = Client(
-        buster_api_key="test-key", airflow_config={"airflow_version": "2.5.0"}
-    )
+    client = Client(buster_api_key="test-key", airflow_config={"airflow_version": "2.5.0"})
 
     # Mock
     def mock_send_request(url, payload, api_key, logger=None):
@@ -165,12 +163,49 @@ def test_airflow_version_auto_detection(monkeypatch):
     # Mock
     def mock_send_request(url, payload, api_key, logger=None):
         # Should have an airflow_version (either detected or default "3.1")
-        assert payload["airflow_version"] is not None
-        assert isinstance(payload["airflow_version"], str)
+        assert "airflow_version" in payload, "airflow_version must be in payload"
+        assert payload["airflow_version"] is not None, "airflow_version must not be None"
+        assert isinstance(payload["airflow_version"], str), "airflow_version must be a string"
+        assert len(payload["airflow_version"]) > 0, "airflow_version must not be empty"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
+    client.airflow.v3.dag_on_failure(
+        context={
+            "dag_id": "test_dag",
+            "run_id": "run_123",
+        }
+    )
+
+
+def test_airflow_payload_includes_none_values(monkeypatch):
+    """
+    Verifies that None values are included in the payload.
+    """
+    import buster.resources.airflow.v3 as v3_module
+
+    client = Client(buster_api_key="test-key")
+
+    # Mock
+    def mock_send_request(url, payload, api_key, logger=None):
+        # airflow_version should always be present (auto-detected to "3.1")
+        assert "airflow_version" in payload
+        assert payload["airflow_version"] == "3.1"
+
+        # Optional fields that are None should be included in payload
+        assert "params" in payload, "params should be in payload"
+        assert payload["params"] is None, "params should be None"
+        assert "duration" in payload, "duration should be in payload"
+        assert payload["duration"] is None, "duration should be None"
+        assert "hostname" in payload, "hostname should be in payload"
+        assert payload["hostname"] is None, "hostname should be None"
+
+        return {"success": True}
+
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    # Call with minimal context (no optional fields)
     client.airflow.v3.dag_on_failure(
         context={
             "dag_id": "test_dag",
@@ -184,9 +219,7 @@ def test_airflow_report_error_skips_on_retries():
     Verifies that report_error returns None when max_tries is not met.
     """
     # Config is on client now
-    client = Client(
-        buster_api_key="test-key", airflow_config={"send_when_retries_exhausted": True}
-    )
+    client = Client(buster_api_key="test-key", airflow_config={"send_when_retries_exhausted": True})
 
     # max_tries=3, try_number=1 -> should skip
     # This should not raise an error and should skip reporting
@@ -207,9 +240,7 @@ def test_airflow_report_error_sends_on_exhaustion(monkeypatch):
     """
     import buster.resources.airflow.v3 as v3_module
 
-    client = Client(
-        buster_api_key="test-key", airflow_config={"send_when_retries_exhausted": True}
-    )
+    client = Client(buster_api_key="test-key", airflow_config={"send_when_retries_exhausted": True})
 
     # Mock
     called = False
@@ -312,9 +343,7 @@ def test_dag_on_failure_extracts_error(monkeypatch):
 
     monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error_reason)
 
-    client.airflow.v3.dag_on_failure(
-        context={"dag_id": "test_dag", "run_id": "run_123", "reason": mock_reason}
-    )
+    client.airflow.v3.dag_on_failure(context={"dag_id": "test_dag", "run_id": "run_123", "reason": mock_reason})
 
 
 def test_task_on_failure_extracts_error(monkeypatch):
@@ -353,7 +382,8 @@ def test_task_on_failure_extracts_error(monkeypatch):
 
 def test_extract_error_with_traceback_and_log_url(monkeypatch):
     """
-    Verifies that enhanced error extraction includes traceback and log URL.
+    Verifies that error extraction includes exception details and log URL.
+    Traceback is sent separately in traceback_frames field.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -378,13 +408,14 @@ def test_extract_error_with_traceback_and_log_url(monkeypatch):
         execution_context=None,
         traceback_frames=None,
     ):
-        # Verify error message includes exception type
+        # Verify error message includes exception type and message
         assert "ValueError: Something went wrong in the task" in error_message
-        # Verify traceback is included
-        assert "Traceback" in error_message
-        assert "raise ValueError" in error_message
-        # Verify log URL is included
+        # Verify log URL is included in error_message
         assert "Logs: https://airflow.example.com" in error_message
+        # Verify traceback is sent separately in traceback_frames
+        assert traceback_frames is not None
+        assert len(traceback_frames) > 0
+        assert any("raise ValueError" in str(frame.get("code", "")) for frame in traceback_frames)
         return {"success": True}
 
     monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)

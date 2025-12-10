@@ -166,9 +166,7 @@ class AirflowV3:
             f"📋 Reporting {event_type.value}: dag_id={dag_id}, run_id={run_id}"
             + (f", task_id={task_id}" if task_id else "")
         )
-        self.client.logger.debug(
-            f"Event details: try_number={try_number}, max_tries={max_tries}"
-        )
+        self.client.logger.debug(f"Event details: try_number={try_number}, max_tries={max_tries}")
 
         # Extract values from config with defaults
         config = self._config
@@ -183,10 +181,7 @@ class AirflowV3:
         # Logic to check if we should send the event based on retries
         if send_when_retries_exhausted and try_number is not None:
             if try_number < max_tries:
-                self.client.logger.info(
-                    f"⏭️  Skipping report (retries not exhausted): "
-                    f"try {try_number}/{max_tries}"
-                )
+                self.client.logger.info(f"⏭️  Skipping report (retries not exhausted): try {try_number}/{max_tries}")
                 return
 
         try:
@@ -227,9 +222,7 @@ class AirflowV3:
 
             # Construct the URL
             url = get_airflow_v3_url(env, api_version)
-            self.client.logger.debug(
-                f"Sending request to: {url} (env={env}, api_version={api_version})"
-            )
+            self.client.logger.debug(f"Sending request to: {url} (env={env}, api_version={api_version})")
 
             # Log the full payload for debugging
             self.client.logger.debug("=" * 80)
@@ -239,9 +232,7 @@ class AirflowV3:
                 if key == "error_message" and value:
                     self.client.logger.debug(f"{key}:")
                     self.client.logger.debug(f"{value}")
-                    self.client.logger.debug(
-                        f"(error_message length: {len(str(value))} characters)"
-                    )
+                    self.client.logger.debug(f"(error_message length: {len(str(value))} characters)")
                 else:
                     self.client.logger.debug(f"{key}: {value}")
             self.client.logger.debug("=" * 80)
@@ -266,9 +257,7 @@ class AirflowV3:
                 msg = err["msg"]
                 issues.append(f"- {field}: {msg}")
 
-            error_msg = "Invalid arguments provided to report_error:\n" + "\n".join(
-                issues
-            )
+            error_msg = "Invalid arguments provided to report_error:\n" + "\n".join(issues)
             self.client.logger.error(f"❌ Validation error: {error_msg}")
             raise ValueError(error_msg) from e
 
@@ -287,15 +276,11 @@ class AirflowV3:
         self.client.logger.debug(f"Context keys: {list(context.keys())}")
 
         extracted = extract_context_values(context)
-        self.client.logger.debug(
-            f"Extracted: dag_id={extracted.dag_id}, run_id={extracted.run_id}"
-        )
+        self.client.logger.debug(f"Extracted: dag_id={extracted.dag_id}, run_id={extracted.run_id}")
 
         error_message = extract_error_message(context)
         if error_message:
-            self.client.logger.debug(
-                f"Error message length: {len(error_message)} chars"
-            )
+            self.client.logger.debug(f"Error message length: {len(error_message)} chars")
             self.client.logger.debug(f"Error message preview: {error_message[:200]}...")
         else:
             self.client.logger.warning("No error message extracted from context")
@@ -350,9 +335,7 @@ class AirflowV3:
         extracted = extract_context_values(context)
         error_message = extract_error_message(context)
         if error_message:
-            self.client.logger.debug(
-                f"Error message length: {len(error_message)} chars"
-            )
+            self.client.logger.debug(f"Error message length: {len(error_message)} chars")
             self.client.logger.debug(f"Error message preview: {error_message[:200]}...")
         else:
             self.client.logger.warning("No error message extracted from context")
