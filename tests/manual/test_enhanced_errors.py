@@ -42,9 +42,7 @@ def main():
         operator = "PythonOperator"
 
     # Test 1: Full error context with all available information
-    print(
-        "\n1. FULL ERROR CONTEXT (Exception + Traceback + Execution Details + Log URL):"
-    )
+    print("\n1. FULL ERROR CONTEXT (Exception + Traceback + Execution Details + Log URL):")
     print("-" * 80)
     context = {
         "exception": exception,

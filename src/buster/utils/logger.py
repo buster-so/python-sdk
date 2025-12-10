@@ -22,9 +22,7 @@ class ColoredFormatter(logging.Formatter):
     RESET = "\033[0m"
     BOLD = "\033[1m"
 
-    def __init__(
-        self, fmt: str, datefmt: Optional[str] = None, use_colors: bool = True
-    ):
+    def __init__(self, fmt: str, datefmt: Optional[str] = None, use_colors: bool = True):
         super().__init__(fmt, datefmt)
         # Check both stdout and stderr for TTY (since we use stdout for logs)
         self.use_colors = use_colors and (
@@ -39,9 +37,7 @@ class ColoredFormatter(logging.Formatter):
 
             # Color the levelname
             levelname_color = self.COLORS.get(record.levelname, "")
-            colored_levelname = (
-                f"{self.BOLD}{levelname_color}{record.levelname}{self.RESET}"
-            )
+            colored_levelname = f"{self.BOLD}{levelname_color}{record.levelname}{self.RESET}"
             record.levelname = colored_levelname
 
             # Format the message

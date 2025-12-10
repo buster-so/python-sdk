@@ -15,20 +15,34 @@ from buster.types.api import AirflowFlowVersion
 from buster.utils import get_buster_url
 
 
-def get_airflow_version(flow_version: Optional[AirflowFlowVersion] = "3.1") -> str:
+def get_airflow_version(flow_version: AirflowFlowVersion = "3.1") -> str:
     """
-    Attempts to detect the installed Airflow version.
+    Attempts to detect the installed Airflow version using the official pattern.
+
+    This follows the same approach used by Apache Airflow's official provider packages:
+    https://airflow.apache.org/docs/apache-airflow-providers/
 
     Returns:
         The Airflow version string (e.g., "2.5.0" or "3.1")
     """
     try:
-        import airflow
+        # Try importing __version__ directly (preferred method)
+        from airflow import (  # type: ignore[import-not-found] # pyright: ignore[reportMissingImports]
+            __version__ as airflow_version,
+        )
 
-        return airflow.__version__
-    except (ImportError, AttributeError):
-        # Airflow not installed or version not available, use default
-        return flow_version
+        return str(airflow_version)
+    except ImportError:
+        try:
+            # Fallback to airflow.version.version (used in some environments)
+            from airflow.version import (  # type: ignore[import-not-found] # pyright: ignore[reportMissingImports]
+                version as airflow_version,
+            )
+
+            return str(airflow_version)
+        except (ImportError, AttributeError):
+            # Airflow not installed or version not available, use default
+            return flow_version
 
 
 def get_airflow_v3_url(env: Environment, api_version: ApiVersion) -> str:
@@ -137,22 +151,23 @@ def extract_traceback_frames(exception) -> List[TracebackFrame]:
 
 def extract_error_message(context: AirflowCallbackContext) -> str:
     """
-    Extracts a comprehensive error message from Airflow task failure callbacks.
+    Extracts error context from Airflow task failure callbacks.
 
     Captures:
     - Exception type and message
-    - Full traceback with file paths and line numbers
-    - Task execution details (state, try number, etc.)
+    - Task execution details (state, try number, duration, hostname)
     - Airflow UI log URL
+
+    Note: Traceback details are sent separately in the traceback_frames field
+    to avoid duplication and provide structured data for LLM consumption.
 
     Args:
         context: Airflow callback context dictionary containing exception and task info
 
     Returns:
-        Formatted error message string with all available details
+        Formatted error message string with execution context and log URL
     """
     import logging
-    import traceback as tb_module
 
     logger = logging.getLogger(__name__)
     logger.debug(f"Extracting error from context with keys: {list(context.keys())}")
@@ -176,37 +191,12 @@ def extract_error_message(context: AirflowCallbackContext) -> str:
             parts.append(f"Exception: {exception}")
             logger.debug("Exception provided as string")
         else:
-            # Exception is an object - extract type, message, and traceback
+            # Exception is an object - extract type and message only
+            # (traceback is sent separately in traceback_frames field)
             exc_type = type(exception).__name__
             exc_message = str(exception)
             parts.append(f"{exc_type}: {exc_message}")
-
-            # Extract full traceback with file paths and line numbers
-            if hasattr(exception, "__traceback__") and exception.__traceback__:
-                try:
-                    tb_lines = tb_module.format_exception(
-                        type(exception), exception, exception.__traceback__
-                    )
-                    full_traceback = "".join(tb_lines).strip()
-                    parts.append(f"\nTraceback:\n{full_traceback}")
-                    logger.debug("Successfully captured full traceback")
-                except Exception as tb_err:
-                    logger.warning(f"Failed to format traceback: {tb_err}")
-                    # Fallback: extract just the error location
-                    try:
-                        tb = exception.__traceback__
-                        # Walk to the last frame to get the actual error location
-                        while tb.tb_next:
-                            tb = tb.tb_next
-                        filename = tb.tb_frame.f_code.co_filename
-                        lineno = tb.tb_lineno
-                        func_name = tb.tb_frame.f_code.co_name
-                        parts.append(
-                            f"\nError Location: {filename}:{lineno} in {func_name}()"
-                        )
-                        logger.debug(f"Captured error location: {filename}:{lineno}")
-                    except Exception as loc_err:
-                        logger.warning(f"Failed to extract error location: {loc_err}")
+            logger.debug(f"Captured exception: {exc_type}")
 
     # Extract task instance information for additional context
     ti = context.get("task_instance") or context.get("ti")

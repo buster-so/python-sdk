@@ -22,10 +22,7 @@ def send_request(
     if not api_key:
         if logger:
             logger.error("API key not provided for HTTP request")
-        raise ValueError(
-            "Buster API key must be provided via argument or 'BUSTER_API_KEY' "
-            "environment variable."
-        )
+        raise ValueError("Buster API key must be provided via argument or 'BUSTER_API_KEY' environment variable.")
 
     headers = {
         "Authorization": f"Bearer {api_key}",

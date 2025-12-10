@@ -54,11 +54,9 @@ def test_client_usage():
 
     # Scenario 3: Manual override in config - should use config value
     print("\n3. Client with manual airflow_version override:")
-    client3 = Client(
-        buster_api_key="test-key", airflow_config={"airflow_version": "2.5.0"}
-    )
+    client3 = Client(buster_api_key="test-key", airflow_config={"airflow_version": "2.5.0"})
     print(f"   Config: {client3.airflow.v3._config}")
-    print(f"   Will use config value: 2.5.0")
+    print("   Will use config value: 2.5.0")
 
     print("\n" + "=" * 80)
     print("✓ All scenarios working correctly!")

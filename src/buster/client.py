@@ -48,8 +48,7 @@ class Client:
         if not self._buster_api_key:
             self.logger.error("API key not found in parameter or environment variable")
             raise ValueError(
-                "Buster API key must be provided via 'buster_api_key' param or "
-                "'BUSTER_API_KEY' environment variable."
+                "Buster API key must be provided via 'buster_api_key' param or 'BUSTER_API_KEY' environment variable."
             )
 
         # Log configuration
@@ -58,7 +57,4 @@ class Client:
 
         self.airflow = AirflowResource(self, config=airflow_config)
 
-        self.logger.info(
-            f"✓ Buster SDK client initialized successfully "
-            f"(debug level: {debug if debug else 'off'})"
-        )
+        self.logger.info(f"✓ Buster SDK client initialized successfully (debug level: {debug if debug else 'off'})")
