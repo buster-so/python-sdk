@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -13,7 +13,9 @@ from buster.types import (
     Environment,
     ExceptionLocation,
     RetryConfig,
+    RuntimeTaskInstance,
     TaskDependencies,
+    TaskInstanceState,
     TracebackFrame,
 )
 from buster.utils import send_request
@@ -366,6 +368,122 @@ class AirflowV3:
             extracted,
             error_message,
             AirflowEventType.TASK_INSTANCE_FAILED,
+            exception_location=exception_location,
+            execution_context=execution_context,
+            traceback_frames=traceback_frames,
+        )
+
+    def plugin_task_on_failure(
+        self,
+        previous_state: TaskInstanceState,
+        task_instance: RuntimeTaskInstance,
+        error: Optional[Union[str, BaseException]],
+    ) -> None:
+        """
+        Airflow plugin hook for task failures.
+
+        This function is designed to be called from Airflow plugin listeners
+        (specifically @hookimpl on_task_instance_failed). Unlike the standard
+        task_on_failure callback which receives a full context dictionary, this
+        function receives structured parameters from the plugin hook.
+
+        Usage:
+            # In your Airflow plugin:
+            from buster import Client
+
+            client = Client(env="development")
+
+            @hookimpl
+            def on_task_instance_failed(previous_state, task_instance, error):
+                client.airflow.v3.plugin_task_on_failure(
+                    previous_state=previous_state,
+                    task_instance=task_instance,
+                    error=error,
+                )
+
+        Args:
+            previous_state: TaskInstanceState - The state the task was in before failing
+            task_instance: RuntimeTaskInstance - The task instance object
+            error: str | BaseException | None - The error that caused the failure
+
+        Note:
+            This function has access to limited context compared to task_on_failure:
+            - Available: dag_id, run_id, task_id, try_number, max_tries, error details,
+              execution context (state, hostname, duration, start_date, log_url)
+            - Not available: operator, params, task_dependencies, dag_config, data_interval
+            - Unique to plugin: previous_state field
+        """
+        self.client.logger.debug("Plugin task failure hook triggered")
+        self.client.logger.debug(
+            f"Task: {getattr(task_instance, 'dag_id', 'unknown')}."
+            f"{getattr(task_instance, 'task_id', 'unknown')}, "
+            f"run: {getattr(task_instance, 'run_id', 'unknown')}, "
+            f"previous_state: {previous_state}"
+        )
+
+        # Manually construct ExtractedContext from task_instance attributes
+        extracted = ExtractedContext(
+            dag_id=getattr(task_instance, "dag_id", None),
+            run_id=getattr(task_instance, "run_id", None),
+            task_id=getattr(task_instance, "task_id", None),
+            try_number=getattr(task_instance, "try_number", None),
+            max_tries=getattr(task_instance, "max_tries", None),
+            # Plugin hooks don't have access to these fields:
+            operator=None,
+            params=None,
+            task_dependencies=None,
+            retry_config=None,
+            dag_config=None,
+            data_interval=None,
+        )
+
+        # Extract error message and exception data from error parameter
+        error_message: Optional[str] = None
+        exception_location: Optional[ExceptionLocation] = None
+        traceback_frames: Optional[List[TracebackFrame]] = None
+
+        if error:
+            if isinstance(error, str):
+                # Error provided as string
+                error_message = error
+                self.client.logger.debug("Error provided as string")
+            else:
+                # Error is a BaseException - extract structured data
+                exc_type = type(error).__name__
+                exc_message = str(error)
+                error_message = f"{exc_type}: {exc_message}"
+                self.client.logger.debug(f"Error extracted from exception: {exc_type}")
+
+                # Extract structured exception location and traceback
+                from .utils import extract_exception_location, extract_traceback_frames
+
+                exception_location = extract_exception_location(error)
+                traceback_frames = extract_traceback_frames(error)
+        else:
+            self.client.logger.warning("No error provided to plugin hook")
+
+        # Build execution context with previous_state and task_instance attributes
+        execution_context = {
+            "previous_state": str(previous_state),
+        }
+
+        # Extract additional execution details from task_instance if available
+        if hasattr(task_instance, "state"):
+            execution_context["state"] = str(task_instance.state)
+        if hasattr(task_instance, "hostname"):
+            execution_context["hostname"] = task_instance.hostname
+        if hasattr(task_instance, "duration"):
+            execution_context["duration"] = task_instance.duration
+        if hasattr(task_instance, "start_date") and task_instance.start_date:
+            execution_context["start_date"] = str(task_instance.start_date)
+        if hasattr(task_instance, "log_url"):
+            execution_context["log_url"] = task_instance.log_url
+
+        # Call _report_error with extracted data
+        self._report_error(
+            extracted=extracted,
+            error_message=error_message,
+            event_type=AirflowEventType.TASK_INSTANCE_FAILED,
             exception_location=exception_location,
             execution_context=execution_context,
             traceback_frames=traceback_frames,

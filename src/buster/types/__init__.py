@@ -8,8 +8,10 @@ from .airflow import (
     DataInterval,
     ExceptionLocation,
     RetryConfig,
+    RuntimeTaskInstance,
     TaskDependencies,
     TaskInstanceProtocol,
+    TaskInstanceState,
     TracebackFrame,
 )
 from .api import ApiVersion, Environment
@@ -28,7 +30,9 @@ __all__ = [
     "Environment",
     "ExceptionLocation",
     "RetryConfig",
+    "RuntimeTaskInstance",
     "TaskDependencies",
     "TaskInstanceProtocol",
+    "TaskInstanceState",
     "TracebackFrame",
 ]
