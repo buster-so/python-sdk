@@ -6,15 +6,25 @@ on:
             - main
         paths-ignore:
             - "CHANGELOG.md"
-            - "pyproject.toml"
+    workflow_dispatch:
+
+permissions:
+    contents: read
 
 jobs:
     release:
         runs-on: ubuntu-latest
-        concurrency: release
+        concurrency:
+            group: ${{ github.workflow }}-${{ github.ref_name }}
+            cancel-in-progress: false
         permissions:
-            id-token: write
             contents: write
+            id-token: write
+
+        outputs:
+            released: ${{ steps.semantic-release.outputs.released }}
+            version: ${{ steps.semantic-release.outputs.version }}
+            tag: ${{ steps.semantic-release.outputs.tag }}
 
         steps:
             - name: Checkout code
@@ -23,8 +33,43 @@ jobs:
                   fetch-depth: 0
                   token: ${{ secrets.GH_TOKEN }}
 
+            - name: Setup Environment
+              uses: ./.github/actions/setup-env
+
             - name: Python Semantic Release
-              uses: python-semantic-release/python-semantic-release@master
+              id: semantic-release
+              uses: python-semantic-release/python-semantic-release@v9.21.0
               with:
                   github_token: ${{ secrets.GH_TOKEN }}
-                  pypi_token: ${{ secrets.PYPI_TOKEN }}
+                  git_committer_name: github-actions
+                  git_committer_email: actions@users.noreply.github.com
+
+            - name: Upload built distributions
+              if: steps.semantic-release.outputs.released == 'true'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: dist
+                  path: dist/
+                  if-no-files-found: error
+
+    publish:
+        name: Publish to PyPI
+        needs: release
+        if: needs.release.outputs.released == 'true'
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+
+        steps:
+            - name: Download built distributions
+              uses: actions/download-artifact@v4
+              with:
+                  name: dist
+                  path: dist/
+
+            - name: Publish to PyPI
+              uses: pypa/gh-action-pypi-publish@release/v1
+              with:
+                  packages-dir: dist/
+                  password: ${{ secrets.PYPI_API_TOKEN }}
+                  print-hash: true
