@@ -1,40 +1,36 @@
-from .airflow import (
+# Re-export Airflow types from their new location
+from buster.resources.airflow.types import (
     AirflowCallbackContext,
+    AirflowDagFailureCallback,
     AirflowEventsPayload,
+    AirflowEventTriggerType,
     AirflowEventType,
+    AirflowPluginDagFailureCallback,
+    AirflowPluginTaskFailureCallback,
     AirflowReportConfig,
-    DagConfig,
+    AirflowTaskFailureCallback,
     DagRun,
-    DagRunProtocol,
-    DataInterval,
-    ExceptionLocation,
-    RetryConfig,
     RuntimeTaskInstance,
-    TaskDependencies,
-    TaskInstanceProtocol,
     TaskInstanceState,
-    TracebackFrame,
 )
+
 from .api import ApiVersion, Environment
 from .debug import DebugLevel
 
 __all__ = [
     "AirflowCallbackContext",
+    "AirflowDagFailureCallback",
+    "AirflowEventTriggerType",
     "AirflowEventType",
     "AirflowEventsPayload",
+    "AirflowPluginDagFailureCallback",
+    "AirflowPluginTaskFailureCallback",
     "AirflowReportConfig",
+    "AirflowTaskFailureCallback",
     "ApiVersion",
-    "DagConfig",
     "DagRun",
-    "DagRunProtocol",
-    "DataInterval",
     "DebugLevel",
     "Environment",
-    "ExceptionLocation",
-    "RetryConfig",
     "RuntimeTaskInstance",
-    "TaskDependencies",
-    "TaskInstanceProtocol",
     "TaskInstanceState",
-    "TracebackFrame",
 ]
