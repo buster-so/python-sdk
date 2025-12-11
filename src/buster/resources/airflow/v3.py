@@ -1,137 +1,23 @@
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, Optional, Union, cast
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 
 from buster.types import (
     AirflowCallbackContext,
-    AirflowEventsPayload,
+    AirflowEventTriggerType,
     AirflowEventType,
     AirflowReportConfig,
-    ApiVersion,
-    DagConfig,
     DagRun,
-    DataInterval,
-    Environment,
-    ExceptionLocation,
-    RetryConfig,
     RuntimeTaskInstance,
-    TaskDependencies,
     TaskInstanceState,
-    TracebackFrame,
 )
 from buster.utils import send_request
 
+from .models import AirflowErrorEvent
 from .utils import (
-    ExtractedContext,
-    extract_context_values,
-    extract_error_message,
     get_airflow_v3_url,
-    get_airflow_version,
+    serialize_airflow_context,
 )
-
-
-class AirflowErrorEvent(BaseModel):
-    """
-    Pydantic model for validating Airflow error events before sending to API.
-
-    All required fields (dag_id, run_id, event_type, api_version, env) must be
-    provided. Optional fields are used when available from the Airflow context.
-
-    Optional fields include:
-    - exception_location: Structured exception details for LLM consumption
-    - operator: Task operator type
-    - params: Task parameters
-    - traceback_frames: Structured traceback as array of frames
-    - task_dependencies: Upstream/downstream task relationships
-    - retry_config: Retry configuration details
-    - dag_config: DAG-level configuration
-    - data_interval: Data interval start/end times
-    - Execution context: state, hostname, duration, start_date, log_url
-    """
-
-    event_type: AirflowEventType
-    dag_id: str = Field(..., min_length=1)
-    run_id: str = Field(..., min_length=1)
-    task_id: Optional[str] = None
-    try_number: Optional[int] = None
-    error_message: Optional[str] = None
-    airflow_version: Optional[str] = None
-    api_version: ApiVersion
-    env: Environment
-
-    # Structured exception details
-    exception_location: Optional[ExceptionLocation] = None
-
-    # Task metadata
-    operator: Optional[str] = None
-    params: Optional[Dict[str, Any]] = None  # User-defined parameters - must remain Any
-
-    # Execution context
-    state: Optional[str] = None
-    hostname: Optional[str] = None
-    duration: Optional[float] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    log_url: Optional[str] = None
-
-    # DAG run specific fields (from plugin_dag_on_failure)
-    run_type: Optional[str] = None
-    logical_date: Optional[str] = None
-    queued_at: Optional[str] = None
-    conf: Optional[Dict[str, Any]] = None
-
-    # Structured traceback
-    traceback_frames: Optional[List[TracebackFrame]] = None
-
-    # Task relationships and configuration
-    task_dependencies: Optional[TaskDependencies] = None
-    retry_config: Optional[RetryConfig] = None
-
-    # DAG configuration
-    dag_config: Optional[DagConfig] = None
-    data_interval: Optional[DataInterval] = None
-
-    def to_payload(self) -> AirflowEventsPayload:
-        """
-        Convert the validated event to the API payload format.
-
-        This method ensures consistency between validation and payload structure,
-        mapping event_type enum to the 'event' string field expected by the API.
-
-        Returns:
-            AirflowEventsPayload ready to send to the API. None values are
-            included in the payload.
-        """
-        return cast(
-            AirflowEventsPayload,
-            {
-                "dag_id": self.dag_id,
-                "run_id": self.run_id,
-                "task_id": self.task_id,
-                "try_number": self.try_number,
-                "event": self.event_type.value,
-                "error_message": self.error_message,
-                "airflow_version": self.airflow_version,
-                "exception_location": self.exception_location,
-                "operator": self.operator,
-                "params": self.params,
-                "state": self.state,
-                "hostname": self.hostname,
-                "duration": self.duration,
-                "start_date": self.start_date,
-                "end_date": self.end_date,
-                "log_url": self.log_url,
-                "run_type": self.run_type,
-                "logical_date": self.logical_date,
-                "queued_at": self.queued_at,
-                "conf": self.conf,
-                "traceback_frames": self.traceback_frames,
-                "task_dependencies": self.task_dependencies,
-                "retry_config": self.retry_config,
-                "dag_config": self.dag_config,
-                "data_interval": self.data_interval,
-            },
-        )
 
 
 class AirflowV3:
@@ -142,28 +28,22 @@ class AirflowV3:
 
     def _report_error(
         self,
-        extracted: ExtractedContext,
-        error_message: Optional[str] = None,
-        event_type: AirflowEventType = AirflowEventType.TASK_INSTANCE_FAILED,
-        exception_location: Optional[ExceptionLocation] = None,
-        execution_context: Optional[Dict[str, Any]] = None,
-        traceback_frames: Optional[List[TracebackFrame]] = None,
+        context: Dict[str, Any],
+        event_type: AirflowEventType,
+        event_trigger_type: AirflowEventTriggerType,
     ) -> None:
         """
         Internal method to report an Airflow error event to Buster API.
 
         This method:
-        1. Validates required fields (dag_id, run_id) using Pydantic
+        1. Serializes the complete Airflow context
         2. Checks if retries are exhausted (if send_when_retries_exhausted is True)
-        3. Constructs and sends the API request
+        3. Validates and sends the API request
 
         Args:
-            extracted: Context values extracted from Airflow callback
-            error_message: Human-readable error message
-            event_type: Type of event (DAG_RUN_FAILED or TASK_INSTANCE_FAILED)
-            exception_location: Structured exception location (file, line, function)
-            execution_context: Execution details (state, hostname, duration, etc.)
-            traceback_frames: Structured traceback as array of frames
+            context: The complete Airflow callback context dictionary
+            event_type: Type of event (TASK_ON_FAILURE, DAG_ON_FAILURE)
+            event_trigger_type: Trigger type (DAG or PLUGIN)
 
         Raises:
             ValueError: If required fields are missing or invalid
@@ -171,22 +51,43 @@ class AirflowV3:
         Returns:
             None
         """
-        dag_id = extracted.dag_id
-        run_id = extracted.run_id
-        task_id = extracted.task_id
-        try_number = extracted.try_number
-        max_tries = extracted.max_tries or 0
+        # Extract basic info for logging and retry logic
+        dag_id = context.get("dag_id")
+        run_id = context.get("run_id")
+        task_id = context.get("task_id")
+
+        # Extract from nested objects if not at top level
+        if not dag_id or not run_id:
+            dag_run = context.get("dag_run")
+            if dag_run:
+                dag_id = dag_id or getattr(dag_run, "dag_id", None)
+                run_id = run_id or getattr(dag_run, "run_id", None)
+
+        if not task_id:
+            ti = context.get("task_instance") or context.get("ti")
+            if ti:
+                task_id = getattr(ti, "task_id", None)
 
         self.client.logger.info(
             f"📋 Reporting {event_type.value}: dag_id={dag_id}, run_id={run_id}"
             + (f", task_id={task_id}" if task_id else "")
         )
+
+        # Extract retry information for filtering
+        try_number: Optional[int] = context.get("try_number")
+        max_tries: Optional[int] = context.get("max_tries")
+
+        # Extract from task_instance if not at top level
+        if try_number is None or max_tries is None:
+            ti = context.get("task_instance") or context.get("ti")
+            if ti:
+                try_number = try_number or getattr(ti, "try_number", None)
+                max_tries = max_tries or getattr(ti, "max_tries", None)
+
         self.client.logger.debug(f"Event details: try_number={try_number}, max_tries={max_tries}")
 
         # Extract values from config with defaults
         config = self._config
-        # Auto-detect airflow version
-        airflow_version = get_airflow_version()
         send_when_retries_exhausted = config.get("send_when_retries_exhausted", True)
 
         # Use env and api_version from client (set at client level)
@@ -194,46 +95,25 @@ class AirflowV3:
         api_version = self.client.api_version
 
         # Logic to check if we should send the event based on retries
-        if send_when_retries_exhausted and try_number is not None:
+        if send_when_retries_exhausted and try_number is not None and max_tries is not None:
             if try_number < max_tries:
                 self.client.logger.info(f"⏭️  Skipping report (retries not exhausted): try {try_number}/{max_tries}")
                 return
 
         try:
+            # Serialize the context to JSON-safe format
+            self.client.logger.debug("Serializing context...")
+            serialized_context = serialize_airflow_context(context)
+            self.client.logger.debug(f"Serialized context with {len(serialized_context)} keys")
+
             # Validate inputs by creating the model
             self.client.logger.debug("Validating event data...")
-
-            # Extract execution context fields
-            exec_ctx = execution_context or {}
-
             event = AirflowErrorEvent(
                 event_type=event_type,
-                dag_id=dag_id or "",
-                run_id=run_id or "",
-                task_id=task_id,
-                try_number=try_number,
-                error_message=error_message,
-                airflow_version=airflow_version,
+                event_trigger_type=event_trigger_type,
+                context=serialized_context,
                 api_version=api_version,
                 env=env,
-                exception_location=exception_location,
-                operator=extracted.operator,
-                params=extracted.params,
-                state=exec_ctx.get("state"),
-                hostname=exec_ctx.get("hostname"),
-                duration=exec_ctx.get("duration"),
-                start_date=exec_ctx.get("start_date"),
-                end_date=exec_ctx.get("end_date"),
-                log_url=exec_ctx.get("log_url"),
-                run_type=exec_ctx.get("run_type"),
-                logical_date=exec_ctx.get("logical_date"),
-                queued_at=exec_ctx.get("queued_at"),
-                conf=exec_ctx.get("conf"),
-                traceback_frames=traceback_frames,
-                task_dependencies=extracted.task_dependencies,
-                retry_config=extracted.retry_config,
-                dag_config=extracted.dag_config,
-                data_interval=extracted.data_interval,
             )
             self.client.logger.debug("Event validation successful")
 
@@ -248,13 +128,9 @@ class AirflowV3:
             self.client.logger.debug("=" * 80)
             self.client.logger.debug("FULL PAYLOAD BEING SENT:")
             self.client.logger.debug("=" * 80)
-            for key, value in request_payload.items():
-                if key == "error_message" and value:
-                    self.client.logger.debug(f"{key}:")
-                    self.client.logger.debug(f"{value}")
-                    self.client.logger.debug(f"(error_message length: {len(str(value))} characters)")
-                else:
-                    self.client.logger.debug(f"{key}: {value}")
+            self.client.logger.debug(f"event_type: {request_payload.get('event_type')}")
+            self.client.logger.debug(f"airflow_version: {request_payload.get('airflow_version')}")
+            self.client.logger.debug(f"context keys: {list(request_payload.get('context', {}).keys())}")
             self.client.logger.debug("=" * 80)
 
             # Send the request
@@ -271,8 +147,6 @@ class AirflowV3:
             # Create a friendly error message
             issues = []
             for err in e.errors():
-                # Get the field name (it's a tuple, we want the first element)
-                # If loc is empty (root validator), use "root"
                 field = str(err["loc"][0]) if err["loc"] else "root"
                 msg = err["msg"]
                 issues.append(f"- {field}: {msg}")
@@ -295,46 +169,8 @@ class AirflowV3:
         self.client.logger.debug("DAG failure callback triggered")
         self.client.logger.debug(f"Context keys: {list(context.keys())}")
 
-        extracted = extract_context_values(context)
-        self.client.logger.debug(f"Extracted: dag_id={extracted.dag_id}, run_id={extracted.run_id}")
-
-        error_message = extract_error_message(context)
-        if error_message:
-            self.client.logger.debug(f"Error message length: {len(error_message)} chars")
-            self.client.logger.debug(f"Error message preview: {error_message[:200]}...")
-        else:
-            self.client.logger.warning("No error message extracted from context")
-
-        # Extract structured exception data for LLM consumption
-        exception = context.get("exception")
-        from .utils import extract_exception_location, extract_traceback_frames
-
-        exception_location = extract_exception_location(exception)
-        traceback_frames = extract_traceback_frames(exception)
-
-        # Extract execution context (may be limited for DAG failures)
-        execution_context = {}
-        ti = context.get("task_instance") or context.get("ti")
-        if ti:
-            if hasattr(ti, "state"):
-                execution_context["state"] = ti.state
-            if hasattr(ti, "hostname"):
-                execution_context["hostname"] = ti.hostname
-            if hasattr(ti, "duration"):
-                execution_context["duration"] = ti.duration
-            if hasattr(ti, "start_date"):
-                execution_context["start_date"] = str(ti.start_date)
-            if hasattr(ti, "log_url"):
-                execution_context["log_url"] = ti.log_url
-
-        self._report_error(
-            extracted,
-            error_message,
-            AirflowEventType.DAG_RUN_FAILED,
-            exception_location=exception_location,
-            execution_context=execution_context,
-            traceback_frames=traceback_frames,
-        )
+        # Send the entire context to the server
+        self._report_error(context, AirflowEventType.DAG_ON_FAILURE, AirflowEventTriggerType.DAG)
 
     def task_on_failure(self, context: AirflowCallbackContext) -> None:
         """
@@ -352,44 +188,8 @@ class AirflowV3:
         self.client.logger.debug("Task failure callback triggered")
         self.client.logger.debug(f"Context keys: {list(context.keys())}")
 
-        extracted = extract_context_values(context)
-        error_message = extract_error_message(context)
-        if error_message:
-            self.client.logger.debug(f"Error message length: {len(error_message)} chars")
-            self.client.logger.debug(f"Error message preview: {error_message[:200]}...")
-        else:
-            self.client.logger.warning("No error message extracted from context")
-
-        # Extract structured exception data for LLM consumption
-        exception = context.get("exception")
-        from .utils import extract_exception_location, extract_traceback_frames
-
-        exception_location = extract_exception_location(exception)
-        traceback_frames = extract_traceback_frames(exception)
-
-        # Extract execution context from task_instance
-        execution_context = {}
-        ti = context.get("task_instance") or context.get("ti")
-        if ti:
-            if hasattr(ti, "state"):
-                execution_context["state"] = ti.state
-            if hasattr(ti, "hostname"):
-                execution_context["hostname"] = ti.hostname
-            if hasattr(ti, "duration"):
-                execution_context["duration"] = ti.duration
-            if hasattr(ti, "start_date"):
-                execution_context["start_date"] = str(ti.start_date)
-            if hasattr(ti, "log_url"):
-                execution_context["log_url"] = ti.log_url
-
-        self._report_error(
-            extracted,
-            error_message,
-            AirflowEventType.TASK_INSTANCE_FAILED,
-            exception_location=exception_location,
-            execution_context=execution_context,
-            traceback_frames=traceback_frames,
-        )
+        # Send the entire context to the server
+        self._report_error(context, AirflowEventType.TASK_ON_FAILURE, AirflowEventTriggerType.DAG)
 
     def plugin_task_on_failure(
         self,
@@ -423,13 +223,6 @@ class AirflowV3:
             previous_state: TaskInstanceState - The state the task was in before failing
             task_instance: RuntimeTaskInstance - The task instance object
             error: str | BaseException | None - The error that caused the failure
-
-        Note:
-            This function has access to limited context compared to task_on_failure:
-            - Available: dag_id, run_id, task_id, try_number, max_tries, error details,
-              execution context (state, hostname, duration, start_date, log_url)
-            - Not available: operator, params, task_dependencies, dag_config, data_interval
-            - Unique to plugin: previous_state field
         """
         self.client.logger.debug("Plugin task failure hook triggered")
         self.client.logger.debug(
@@ -439,73 +232,20 @@ class AirflowV3:
             f"previous_state: {previous_state}"
         )
 
-        # Manually construct ExtractedContext from task_instance attributes
-        extracted = ExtractedContext(
-            dag_id=getattr(task_instance, "dag_id", None),
-            run_id=getattr(task_instance, "run_id", None),
-            task_id=getattr(task_instance, "task_id", None),
-            try_number=getattr(task_instance, "try_number", None),
-            max_tries=getattr(task_instance, "max_tries", None),
-            # Plugin hooks don't have access to these fields:
-            operator=None,
-            params=None,
-            task_dependencies=None,
-            retry_config=None,
-            dag_config=None,
-            data_interval=None,
-        )
-
-        # Extract error message and exception data from error parameter
-        error_message: Optional[str] = None
-        exception_location: Optional[ExceptionLocation] = None
-        traceback_frames: Optional[List[TracebackFrame]] = None
-
-        if error:
-            if isinstance(error, str):
-                # Error provided as string
-                error_message = error
-                self.client.logger.debug("Error provided as string")
-            else:
-                # Error is a BaseException - extract structured data
-                exc_type = type(error).__name__
-                exc_message = str(error)
-                error_message = f"{exc_type}: {exc_message}"
-                self.client.logger.debug(f"Error extracted from exception: {exc_type}")
-
-                # Extract structured exception location and traceback
-                from .utils import extract_exception_location, extract_traceback_frames
-
-                exception_location = extract_exception_location(error)
-                traceback_frames = extract_traceback_frames(error)
-        else:
-            self.client.logger.warning("No error provided to plugin hook")
-
-        # Build execution context with previous_state and task_instance attributes
-        execution_context = {
+        # Construct a context dictionary from the plugin hook parameters
+        # This matches the AirflowPluginTaskFailureCallback structure
+        context: Dict[str, Any] = {
             "previous_state": str(previous_state),
+            "task_instance": task_instance,
+            "error": error,
         }
 
-        # Extract additional execution details from task_instance if available
-        if hasattr(task_instance, "state"):
-            execution_context["state"] = str(task_instance.state)
-        if hasattr(task_instance, "hostname"):
-            execution_context["hostname"] = task_instance.hostname
-        if hasattr(task_instance, "duration"):
-            execution_context["duration"] = task_instance.duration
-        if hasattr(task_instance, "start_date") and task_instance.start_date:
-            execution_context["start_date"] = str(task_instance.start_date)
-        if hasattr(task_instance, "log_url"):
-            execution_context["log_url"] = task_instance.log_url
+        # If error is an exception, also add a msg field with the error message
+        if error and not isinstance(error, str):
+            context["msg"] = f"{type(error).__name__}: {str(error)}"
 
-        # Call _report_error with extracted data
-        self._report_error(
-            extracted=extracted,
-            error_message=error_message,
-            event_type=AirflowEventType.TASK_INSTANCE_FAILED,
-            exception_location=exception_location,
-            execution_context=execution_context,
-            traceback_frames=traceback_frames,
-        )
+        # Send the entire context to the server
+        self._report_error(context, AirflowEventType.TASK_ON_FAILURE, AirflowEventTriggerType.PLUGIN)
 
     def plugin_dag_on_failure(
         self,
@@ -536,15 +276,6 @@ class AirflowV3:
         Args:
             dag_run: DagRun - The DAG run object that failed
             msg: str - Error message describing the failure
-
-        Note:
-            This function has access to limited context compared to dag_on_failure:
-            - Available: dag_id, run_id, error_message (from msg), data_interval,
-              execution context (state, start_date, end_date, duration, run_type,
-              logical_date, queued_at, conf)
-            - Not available: exception_location, traceback_frames (no exception object),
-              task_id, operator, params, task_dependencies, dag_config (no DAG object)
-            - Unique to plugin: run_type, logical_date, queued_at, conf fields
         """
         self.client.logger.debug("Plugin DAG failure hook triggered")
         self.client.logger.debug(
@@ -553,82 +284,12 @@ class AirflowV3:
             f"msg: {msg[:100] if msg else 'None'}"
         )
 
-        # Extract data_interval from dag_run
-        data_interval: Optional[DataInterval] = None
-        if hasattr(dag_run, "data_interval_start") and dag_run.data_interval_start:
-            interval: DataInterval = {}
-            interval["start"] = str(dag_run.data_interval_start)
-            if hasattr(dag_run, "data_interval_end") and dag_run.data_interval_end:
-                interval["end"] = str(dag_run.data_interval_end)
-            if interval:
-                data_interval = interval
+        # Construct a context dictionary from the plugin hook parameters
+        # This matches the AirflowPluginDagFailureCallback structure
+        context: Dict[str, Any] = {
+            "dag_run": dag_run,
+            "msg": msg,
+        }
 
-        # Manually construct ExtractedContext from dag_run attributes
-        # All task-specific fields are None for DAG-level failures
-        extracted = ExtractedContext(
-            dag_id=getattr(dag_run, "dag_id", None),
-            run_id=getattr(dag_run, "run_id", None),
-            task_id=None,  # DAG-level failure, no specific task
-            try_number=None,
-            max_tries=None,
-            operator=None,
-            params=None,
-            task_dependencies=None,
-            retry_config=None,
-            dag_config=None,  # No access to DAG object in plugin hook
-            data_interval=data_interval,
-        )
-
-        # Extract error message from msg parameter
-        error_message = msg if msg else "DAG run failed with no error message provided"
-
-        # No exception object available from plugin hook
-        exception_location: Optional[ExceptionLocation] = None
-        traceback_frames: Optional[List[TracebackFrame]] = None
-
-        # Build execution context with dag_run attributes
-        execution_context: Dict[str, Any] = {}
-
-        # State and timing
-        if hasattr(dag_run, "state"):
-            execution_context["state"] = str(dag_run.state)
-        if hasattr(dag_run, "start_date") and dag_run.start_date:
-            execution_context["start_date"] = str(dag_run.start_date)
-        if hasattr(dag_run, "end_date") and dag_run.end_date:
-            execution_context["end_date"] = str(dag_run.end_date)
-
-        # Calculate duration
-        if hasattr(dag_run, "start_date") and hasattr(dag_run, "end_date"):
-            if dag_run.start_date and dag_run.end_date:
-                duration = (dag_run.end_date - dag_run.start_date).total_seconds()
-                execution_context["duration"] = duration
-
-        # Run metadata (unique to DAG run plugin hook)
-        if hasattr(dag_run, "run_type"):
-            execution_context["run_type"] = str(dag_run.run_type)
-        if hasattr(dag_run, "logical_date") and dag_run.logical_date:
-            execution_context["logical_date"] = str(dag_run.logical_date)
-        if hasattr(dag_run, "queued_at") and dag_run.queued_at:
-            execution_context["queued_at"] = str(dag_run.queued_at)
-
-        # DAG run configuration
-        if hasattr(dag_run, "conf") and dag_run.conf:
-            try:
-                import json
-
-                json.dumps(dag_run.conf)  # Validate serializable
-                execution_context["conf"] = dag_run.conf
-            except (TypeError, ValueError):
-                execution_context["conf"] = str(dag_run.conf)
-
-        self.client.logger.debug(f"Execution context fields: {list(execution_context.keys())}")
-
-        # Call _report_error with extracted data
-        self._report_error(
-            extracted=extracted,
-            error_message=error_message,
-            event_type=AirflowEventType.DAG_RUN_FAILED,
-            exception_location=exception_location,
-            execution_context=execution_context,
-            traceback_frames=traceback_frames,
-        )
+        # Send the entire context to the server
+        self._report_error(context, AirflowEventType.DAG_ON_FAILURE, AirflowEventTriggerType.PLUGIN)

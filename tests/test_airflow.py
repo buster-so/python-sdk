@@ -34,11 +34,13 @@ def test_airflow_report_error(capsys, monkeypatch):
 
     def mock_send_request(url, payload, api_key, logger=None):
         assert "api2.buster.so/api/v2/public/airflow-events" in url
-        assert payload["dag_id"] == "test_dag"
-        assert payload["event"] == "dag_run_failed"
+        assert payload["event_type"] == "dag_on_failure"
+        assert payload["event_trigger_type"] == "dag"
         assert api_key == "test-key"
-        # Verify mapping
-        assert "event_type" not in payload
+        # Verify context contains the data
+        assert "context" in payload
+        assert payload["context"]["dag_id"] == "test_dag"
+        assert payload["context"]["run_id"] == "run_123"
         return mock_response
 
     import buster.resources.airflow.v3 as v3_module
@@ -57,18 +59,27 @@ def test_airflow_report_error(capsys, monkeypatch):
 
 def test_airflow_validation_error():
     """
-    Verifies that report_error raises ValueError when required fields are missing.
+    Verifies that the context can be any dict - no field-level validation.
+    The new structure just serializes whatever context is provided.
     """
     client = Client(buster_api_key="test-key")
 
-    # Missing dag_id (empty context)
-    with pytest.raises(ValueError) as excinfo:
-        client.airflow.v3.dag_on_failure(context={"run_id": "run_123"})
+    import buster.resources.airflow.v3 as v3_module
 
-    # Check that the error message mentions the missing field in our friendly format
-    error_str = str(excinfo.value)
-    assert "Invalid arguments provided to report_error" in error_str
-    assert "- dag_id: String should have at least 1 character" in error_str
+    def mock_send_request(url, payload, api_key, logger=None):
+        # Should successfully send even with minimal context
+        assert payload["event_type"] == "dag_on_failure"
+        assert "context" in payload
+        assert payload["context"]["run_id"] == "run_123"
+        return {"success": True}
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
+
+    # Should work fine with minimal context - we serialize everything
+    client.airflow.v3.dag_on_failure(context={"run_id": "run_123"})
+
+    monkeypatch.undo()
 
 
 def test_airflow_report_error_with_api_version(monkeypatch):
@@ -158,7 +169,7 @@ def test_airflow_version_auto_detection(monkeypatch):
 
 def test_airflow_payload_includes_none_values(monkeypatch):
     """
-    Verifies that None values are included in the payload.
+    Verifies that None values in context are serialized properly.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -170,23 +181,24 @@ def test_airflow_payload_includes_none_values(monkeypatch):
         assert "airflow_version" in payload
         assert payload["airflow_version"] == "3.1"
 
-        # Optional fields that are None should be included in payload
-        assert "params" in payload, "params should be in payload"
-        assert payload["params"] is None, "params should be None"
-        assert "duration" in payload, "duration should be in payload"
-        assert payload["duration"] is None, "duration should be None"
-        assert "hostname" in payload, "hostname should be in payload"
-        assert payload["hostname"] is None, "hostname should be None"
+        # Context should contain the serialized fields
+        assert "context" in payload
+        assert payload["context"]["params"] is None, "params should be None"
+        assert payload["context"]["duration"] is None, "duration should be None"
+        assert payload["context"]["hostname"] is None, "hostname should be None"
 
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    # Call with minimal context (no optional fields)
+    # Call with context that has None values
     client.airflow.v3.dag_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
+            "params": None,
+            "duration": None,
+            "hostname": None,
         }
     )
 
@@ -244,7 +256,7 @@ def test_airflow_report_error_sends_on_exhaustion(monkeypatch):
 
 def test_airflow_report_error_default_event_type(monkeypatch):
     """
-    Verifies that task_on_failure uses TASK_INSTANCE_FAILED event type.
+    Verifies that task_on_failure uses TASK_ON_FAILURE event type.
     """
     import buster.resources.airflow.v3 as v3_module
     from buster.types import AirflowEventType
@@ -253,12 +265,14 @@ def test_airflow_report_error_default_event_type(monkeypatch):
 
     # Mock
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["event"] == AirflowEventType.TASK_INSTANCE_FAILED.value
+        assert payload["event_type"] == AirflowEventType.TASK_ON_FAILURE.value
+        assert payload["event_type"] == "task_on_failure"
+        assert payload["event_trigger_type"] == "dag"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
-    # task_on_failure should use TASK_INSTANCE_FAILED
+    # task_on_failure should use TASK_ON_FAILURE
     client.airflow.v3.task_on_failure(
         context={
             "dag_id": "test_dag",
@@ -268,31 +282,28 @@ def test_airflow_report_error_default_event_type(monkeypatch):
     )
 
 
-def test_dag_on_failure_extracts_error(monkeypatch):
+def test_dag_on_failure_serializes_exception(monkeypatch):
     """
-    Verifies that dag_on_failure correctly extracts error message from context.
+    Verifies that dag_on_failure serializes exception in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
 
-    # 1. Test with exception - now includes exception type
     mock_exception_msg = "Test exception message"
 
-    def mock_report_error(
-        self,
-        extracted,
-        error_message,
-        event_type,
-        exception_location=None,
-        execution_context=None,
-        traceback_frames=None,
-    ):
-        # New format includes exception type
-        assert error_message == f"Exception: {mock_exception_msg}"
+    def mock_send_request(url, payload, api_key, logger=None):
+        # Exception should be serialized in context
+        assert "context" in payload
+        assert "exception" in payload["context"]
+        exception_data = payload["context"]["exception"]
+        assert exception_data["_type"] == "exception"
+        assert exception_data["exception_type"] == "Exception"
+        assert exception_data["exception_message"] == mock_exception_msg
+        assert "traceback" in exception_data
         return {"success": True}
 
-    monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
     client.airflow.v3.dag_on_failure(
         context={
@@ -302,30 +313,10 @@ def test_dag_on_failure_extracts_error(monkeypatch):
         }
     )
 
-    # 2. Test with reason (used as fallback when no exception present)
-    mock_reason = "Test reason"
 
-    def mock_report_error_reason(
-        self,
-        extracted,
-        error_message,
-        event_type,
-        exception_location=None,
-        execution_context=None,
-        traceback_frames=None,
-    ):
-        # Reason is now formatted as "Exception: {reason}" for consistency
-        assert error_message == f"Exception: {mock_reason}"
-        return {"success": True}
-
-    monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error_reason)
-
-    client.airflow.v3.dag_on_failure(context={"dag_id": "test_dag", "run_id": "run_123", "reason": mock_reason})
-
-
-def test_task_on_failure_extracts_error(monkeypatch):
+def test_task_on_failure_serializes_exception(monkeypatch):
     """
-    Verifies that task_on_failure correctly extracts error message from context.
+    Verifies that task_on_failure serializes exception in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -333,34 +324,31 @@ def test_task_on_failure_extracts_error(monkeypatch):
 
     mock_exception_msg = "Task failure exception"
 
-    def mock_report_error(
-        self,
-        extracted,
-        error_message,
-        event_type,
-        exception_location=None,
-        execution_context=None,
-        traceback_frames=None,
-    ):
-        # New format includes exception type
-        assert error_message == f"Exception: {mock_exception_msg}"
+    def mock_send_request(url, payload, api_key, logger=None):
+        # Exception should be serialized in context
+        assert "context" in payload
+        assert "exception" in payload["context"]
+        exception_data = payload["context"]["exception"]
+        assert exception_data["_type"] == "exception"
+        assert exception_data["exception_type"] == "Exception"
+        assert exception_data["exception_message"] == mock_exception_msg
         return {"success": True}
 
-    monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
     client.airflow.v3.task_on_failure(
         context={
             "dag_id": "test_dag",
             "run_id": "run_123",
+            "task_id": "test_task",
             "exception": Exception(mock_exception_msg),
         }
     )
 
 
-def test_extract_error_with_traceback_and_log_url(monkeypatch):
+def test_serializes_exception_with_traceback(monkeypatch):
     """
-    Verifies that error extraction includes exception details and log URL.
-    Traceback is sent separately in traceback_frames field.
+    Verifies that exceptions with tracebacks are properly serialized.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -374,28 +362,25 @@ def test_extract_error_with_traceback_and_log_url(monkeypatch):
 
     # Mock task instance with log_url
     class MockTaskInstance:
-        log_url = "https://airflow.example.com/dags/test_dag/grid?task_id=test_task"
+        def __init__(self):
+            self.log_url = "https://airflow.example.com/dags/test_dag/grid?task_id=test_task"
 
-    def mock_report_error(
-        self,
-        extracted,
-        error_message,
-        event_type,
-        exception_location=None,
-        execution_context=None,
-        traceback_frames=None,
-    ):
-        # Verify error message includes exception type and message
-        assert "ValueError: Something went wrong in the task" in error_message
-        # Verify log URL is included in error_message
-        assert "Logs: https://airflow.example.com" in error_message
-        # Verify traceback is sent separately in traceback_frames
-        assert traceback_frames is not None
-        assert len(traceback_frames) > 0
-        assert any("raise ValueError" in str(frame.get("code", "")) for frame in traceback_frames)
+    def mock_send_request(url, payload, api_key, logger=None):
+        # Verify exception is serialized with traceback
+        exception_data = payload["context"]["exception"]
+        assert exception_data["_type"] == "exception"
+        assert exception_data["exception_type"] == "ValueError"
+        assert exception_data["exception_message"] == "Something went wrong in the task"
+        assert "traceback" in exception_data
+        assert len(exception_data["traceback"]) > 0
+        # Verify task_instance is serialized
+        assert "task_instance" in payload["context"]
+        task_instance_data = payload["context"]["task_instance"]
+        assert task_instance_data["_type"] == "object"
+        assert task_instance_data["log_url"] == "https://airflow.example.com/dags/test_dag/grid?task_id=test_task"
         return {"success": True}
 
-    monkeypatch.setattr(v3_module.AirflowV3, "_report_error", mock_report_error)
+    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
 
     client.airflow.v3.task_on_failure(
         context={
@@ -408,46 +393,9 @@ def test_extract_error_with_traceback_and_log_url(monkeypatch):
     )
 
 
-def test_extract_exception_location():
+def test_operator_serialization(monkeypatch):
     """
-    Verifies that extract_exception_location extracts structured data from exceptions.
-    """
-    from buster.resources.airflow.utils import extract_exception_location
-
-    # Test 1: Exception with traceback
-    try:
-        raise ValueError("Test error message")
-    except ValueError as e:
-        location = extract_exception_location(e)
-        assert location["type"] == "ValueError"
-        assert location["message"] == "Test error message"
-        assert "file" in location
-        assert "line" in location
-        assert "function" in location
-        assert location["function"] == "test_extract_exception_location"
-
-    # Test 2: String exception (returns empty dict)
-    location = extract_exception_location("string error")
-    assert location == {}
-
-    # Test 3: None exception (returns empty dict)
-    location = extract_exception_location(None)
-    assert location == {}
-
-    # Test 4: Exception without traceback
-    exception_no_tb = ValueError("No traceback")
-    location = extract_exception_location(exception_no_tb)
-    assert location["type"] == "ValueError"
-    assert location["message"] == "No traceback"
-    # Should have type and message but no file/line/function
-    assert "file" not in location
-    assert "line" not in location
-    assert "function" not in location
-
-
-def test_operator_extraction(monkeypatch):
-    """
-    Verifies that operator type is extracted and sent in payload.
+    Verifies that task objects are serialized in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -455,10 +403,15 @@ def test_operator_extraction(monkeypatch):
 
     # Mock task with operator_name
     class MockTask:
-        operator_name = "PythonOperator"
+        def __init__(self):
+            self.operator_name = "PythonOperator"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["operator"] == "PythonOperator"
+        # Task should be serialized in context
+        assert "task" in payload["context"]
+        task_data = payload["context"]["task"]
+        assert task_data["_type"] == "object"
+        assert task_data["operator_name"] == "PythonOperator"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -473,9 +426,9 @@ def test_operator_extraction(monkeypatch):
     )
 
 
-def test_params_extraction(monkeypatch):
+def test_params_serialization(monkeypatch):
     """
-    Verifies that task params are extracted and sent in payload.
+    Verifies that task params are serialized in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -484,7 +437,9 @@ def test_params_extraction(monkeypatch):
     test_params = {"key1": "value1", "key2": 123}
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["params"] == test_params
+        # Params should be in context
+        assert "params" in payload["context"]
+        assert payload["context"]["params"] == test_params
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -499,44 +454,9 @@ def test_params_extraction(monkeypatch):
     )
 
 
-def test_exception_location_in_payload(monkeypatch):
+def test_task_instance_serialization(monkeypatch):
     """
-    Verifies that exception_location is extracted and sent in payload.
-    """
-    import buster.resources.airflow.v3 as v3_module
-
-    client = Client(buster_api_key="test-key")
-
-    # Create an exception with traceback
-    try:
-        raise ValueError("Test structured exception")
-    except ValueError as e:
-        test_exception = e
-
-    def mock_send_request(url, payload, api_key, logger=None):
-        assert "exception_location" in payload
-        assert payload["exception_location"]["type"] == "ValueError"
-        assert payload["exception_location"]["message"] == "Test structured exception"
-        assert "file" in payload["exception_location"]
-        assert "line" in payload["exception_location"]
-        assert "function" in payload["exception_location"]
-        return {"success": True}
-
-    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
-
-    client.airflow.v3.task_on_failure(
-        context={
-            "dag_id": "test_dag",
-            "run_id": "run_123",
-            "task_id": "test_task",
-            "exception": test_exception,
-        }
-    )
-
-
-def test_execution_context_in_payload(monkeypatch):
-    """
-    Verifies that execution context (state, hostname, etc.) is sent in payload.
+    Verifies that task_instance objects are properly serialized in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -544,18 +464,23 @@ def test_execution_context_in_payload(monkeypatch):
 
     # Mock task instance with execution details
     class MockTaskInstance:
-        state = "failed"
-        hostname = "worker-1"
-        duration = 5.5
-        start_date = "2024-01-01 00:00:00"
-        log_url = "https://airflow.example.com/logs"
+        def __init__(self):
+            self.state = "failed"
+            self.hostname = "worker-1"
+            self.duration = 5.5
+            self.start_date = "2024-01-01 00:00:00"
+            self.log_url = "https://airflow.example.com/logs"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["state"] == "failed"
-        assert payload["hostname"] == "worker-1"
-        assert payload["duration"] == 5.5
-        assert payload["start_date"] == "2024-01-01 00:00:00"
-        assert payload["log_url"] == "https://airflow.example.com/logs"
+        # task_instance should be serialized in context
+        assert "task_instance" in payload["context"]
+        ti_data = payload["context"]["task_instance"]
+        assert ti_data["_type"] == "object"
+        assert ti_data["state"] == "failed"
+        assert ti_data["hostname"] == "worker-1"
+        assert ti_data["duration"] == 5.5
+        assert ti_data["start_date"] == "2024-01-01 00:00:00"
+        assert ti_data["log_url"] == "https://airflow.example.com/logs"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -570,40 +495,9 @@ def test_execution_context_in_payload(monkeypatch):
     )
 
 
-def test_extract_traceback_frames():
+def test_task_dependencies_serialization(monkeypatch):
     """
-    Verifies that extract_traceback_frames extracts structured frames from exceptions.
-    """
-    from buster.resources.airflow.utils import extract_traceback_frames
-
-    # Test 1: Exception with traceback
-    try:
-
-        def inner_function():
-            raise ValueError("Test error in inner function")
-
-        inner_function()
-    except ValueError as e:
-        frames = extract_traceback_frames(e)
-        assert len(frames) >= 2  # At least outer and inner function
-        assert all("file" in frame for frame in frames)
-        assert all("line" in frame for frame in frames)
-        assert all("function" in frame for frame in frames)
-        # Check that last frame is the actual error location
-        assert frames[-1]["function"] == "inner_function"
-
-    # Test 2: String exception (returns empty list)
-    frames = extract_traceback_frames("string error")
-    assert frames == []
-
-    # Test 3: None exception (returns empty list)
-    frames = extract_traceback_frames(None)
-    assert frames == []
-
-
-def test_task_dependencies_in_payload(monkeypatch):
-    """
-    Verifies that task dependencies are extracted and sent in payload.
+    Verifies that task objects with dependencies are serialized in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -611,14 +505,19 @@ def test_task_dependencies_in_payload(monkeypatch):
 
     # Mock task with dependencies
     class MockTask:
-        operator_name = "PythonOperator"
-        upstream_task_ids = {"task_a", "task_b"}
-        downstream_task_ids = {"task_d", "task_e"}
+        def __init__(self):
+            self.operator_name = "PythonOperator"
+            self.upstream_task_ids = {"task_a", "task_b"}
+            self.downstream_task_ids = {"task_d", "task_e"}
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert "task_dependencies" in payload
-        assert set(payload["task_dependencies"]["upstream"]) == {"task_a", "task_b"}
-        assert set(payload["task_dependencies"]["downstream"]) == {"task_d", "task_e"}
+        # Task with dependencies should be serialized
+        assert "task" in payload["context"]
+        task_data = payload["context"]["task"]
+        assert task_data["_type"] == "object"
+        # Sets are converted to lists during serialization
+        assert set(task_data["upstream_task_ids"]) == {"task_a", "task_b"}
+        assert set(task_data["downstream_task_ids"]) == {"task_d", "task_e"}
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -633,9 +532,9 @@ def test_task_dependencies_in_payload(monkeypatch):
     )
 
 
-def test_retry_config_in_payload(monkeypatch):
+def test_retry_config_serialization(monkeypatch):
     """
-    Verifies that retry configuration is extracted and sent in payload.
+    Verifies that task retry configuration is serialized in context.
     """
     from datetime import timedelta
 
@@ -645,17 +544,21 @@ def test_retry_config_in_payload(monkeypatch):
 
     # Mock task with retry config
     class MockTask:
-        operator_name = "PythonOperator"
-        retries = 3
-        retry_delay = timedelta(minutes=5)
-        retry_exponential_backoff = True
-        max_retry_delay = timedelta(hours=1)
+        def __init__(self):
+            self.operator_name = "PythonOperator"
+            self.retries = 3
+            self.retry_delay = timedelta(minutes=5)
+            self.retry_exponential_backoff = True
+            self.max_retry_delay = timedelta(hours=1)
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert "retry_config" in payload
-        assert payload["retry_config"]["retries"] == 3
-        assert "0:05:00" in payload["retry_config"]["retry_delay"]
-        assert payload["retry_config"]["retry_exponential_backoff"] is True
+        # Task with retry config should be serialized
+        assert "task" in payload["context"]
+        task_data = payload["context"]["task"]
+        assert task_data["retries"] == 3
+        # timedelta is serialized as string
+        assert "0:05:00" in task_data["retry_delay"]
+        assert task_data["retry_exponential_backoff"] is True
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -670,9 +573,9 @@ def test_retry_config_in_payload(monkeypatch):
     )
 
 
-def test_dag_config_in_payload(monkeypatch):
+def test_dag_config_serialization(monkeypatch):
     """
-    Verifies that DAG configuration is extracted and sent in payload.
+    Verifies that DAG configuration is serialized in context.
     """
     import buster.resources.airflow.v3 as v3_module
 
@@ -680,17 +583,21 @@ def test_dag_config_in_payload(monkeypatch):
 
     # Mock DAG with config
     class MockDAG:
-        schedule_interval = "0 0 * * *"
-        description = "Test DAG description"
-        catchup = False
-        max_active_runs = 3
+        def __init__(self):
+            self.schedule_interval = "0 0 * * *"
+            self.description = "Test DAG description"
+            self.catchup = False
+            self.max_active_runs = 3
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert "dag_config" in payload
-        assert payload["dag_config"]["schedule_interval"] == "0 0 * * *"
-        assert payload["dag_config"]["description"] == "Test DAG description"
-        assert payload["dag_config"]["catchup"] is False
-        assert payload["dag_config"]["max_active_runs"] == 3
+        # DAG should be serialized in context
+        assert "dag" in payload["context"]
+        dag_data = payload["context"]["dag"]
+        assert dag_data["_type"] == "object"
+        assert dag_data["schedule_interval"] == "0 0 * * *"
+        assert dag_data["description"] == "Test DAG description"
+        assert dag_data["catchup"] is False
+        assert dag_data["max_active_runs"] == 3
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -705,9 +612,9 @@ def test_dag_config_in_payload(monkeypatch):
     )
 
 
-def test_data_interval_in_payload(monkeypatch):
+def test_data_interval_serialization(monkeypatch):
     """
-    Verifies that data interval is extracted and sent in payload.
+    Verifies that dag_run with data interval is serialized in context.
     """
     from datetime import datetime
 
@@ -717,15 +624,20 @@ def test_data_interval_in_payload(monkeypatch):
 
     # Mock dag_run with data interval
     class MockDagRun:
-        dag_id = "test_dag"
-        run_id = "run_123"
-        data_interval_start = datetime(2024, 1, 1, 0, 0, 0)
-        data_interval_end = datetime(2024, 1, 2, 0, 0, 0)
+        def __init__(self):
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.data_interval_start = datetime(2024, 1, 1, 0, 0, 0)
+            self.data_interval_end = datetime(2024, 1, 2, 0, 0, 0)
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert "data_interval" in payload
-        assert "2024-01-01" in payload["data_interval"]["start"]
-        assert "2024-01-02" in payload["data_interval"]["end"]
+        # dag_run should be serialized in context
+        assert "dag_run" in payload["context"]
+        dag_run_data = payload["context"]["dag_run"]
+        assert dag_run_data["_type"] == "object"
+        # datetime is serialized as ISO format
+        assert "2024-01-01" in dag_run_data["data_interval_start"]
+        assert "2024-01-02" in dag_run_data["data_interval_end"]
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -736,43 +648,6 @@ def test_data_interval_in_payload(monkeypatch):
             "run_id": "run_123",
             "task_id": "test_task",
             "dag_run": MockDagRun(),
-        }
-    )
-
-
-def test_traceback_frames_in_payload(monkeypatch):
-    """
-    Verifies that structured traceback frames are sent in payload.
-    """
-    import buster.resources.airflow.v3 as v3_module
-
-    client = Client(buster_api_key="test-key")
-
-    # Create an exception with traceback
-    try:
-        raise ValueError("Test error with traceback")
-    except ValueError as e:
-        test_exception = e
-
-    def mock_send_request(url, payload, api_key, logger=None):
-        assert "traceback_frames" in payload
-        assert isinstance(payload["traceback_frames"], list)
-        assert len(payload["traceback_frames"]) > 0
-        # Check frame structure
-        frame = payload["traceback_frames"][0]
-        assert "file" in frame
-        assert "line" in frame
-        assert "function" in frame
-        return {"success": True}
-
-    monkeypatch.setattr(v3_module, "send_request", mock_send_request)
-
-    client.airflow.v3.task_on_failure(
-        context={
-            "dag_id": "test_dag",
-            "run_id": "run_123",
-            "task_id": "test_task",
-            "exception": test_exception,
         }
     )
 
@@ -800,11 +675,17 @@ def test_plugin_task_on_failure_basic(monkeypatch):
             return "running"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["dag_id"] == "test_dag"
-        assert payload["run_id"] == "run_123"
-        assert payload["task_id"] == "test_task"
-        assert payload["event"] == "task_instance_failed"
-        assert payload["try_number"] == 1
+        assert payload["event_type"] == "task_on_failure"
+        assert payload["event_trigger_type"] == "plugin"
+        # Check context contains serialized data
+        assert "context" in payload
+        assert payload["context"]["previous_state"] == "running"
+        # task_instance should be serialized
+        assert "task_instance" in payload["context"]
+        ti_data = payload["context"]["task_instance"]
+        assert ti_data["dag_id"] == "test_dag"
+        assert ti_data["run_id"] == "run_123"
+        assert ti_data["task_id"] == "test_task"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -834,10 +715,11 @@ def test_plugin_task_on_failure_string_error(monkeypatch):
             return "running"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["error_message"] == "String error message"
-        # String errors don't have exception_location or traceback_frames
-        assert "exception_location" not in payload or payload.get("exception_location") is None
-        assert "traceback_frames" not in payload or payload.get("traceback_frames") is None
+        # String error should be in context
+        assert "context" in payload
+        assert payload["context"]["error"] == "String error message"
+        # msg field should also be set for string errors
+        assert "msg" in payload["context"]
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -850,7 +732,7 @@ def test_plugin_task_on_failure_string_error(monkeypatch):
 
 
 def test_plugin_task_on_failure_exception_error(monkeypatch):
-    """Verifies extraction of exception location and traceback."""
+    """Verifies serialization of exception with traceback."""
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
@@ -873,13 +755,18 @@ def test_plugin_task_on_failure_exception_error(monkeypatch):
         test_exception = e
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert "ValueError: Test exception error" in payload["error_message"]
-        # Should have exception_location
-        assert "exception_location" in payload
-        assert payload["exception_location"]["type"] == "ValueError"
-        # Should have traceback_frames
-        assert "traceback_frames" in payload
-        assert isinstance(payload["traceback_frames"], list)
+        # Exception should be serialized in context
+        assert "context" in payload
+        assert "error" in payload["context"]
+        error_data = payload["context"]["error"]
+        assert error_data["_type"] == "exception"
+        assert error_data["exception_type"] == "ValueError"
+        assert error_data["exception_message"] == "Test exception error"
+        # Should have traceback
+        assert "traceback" in error_data
+        # msg field should also be set
+        assert "msg" in payload["context"]
+        assert "ValueError: Test exception error" in payload["context"]["msg"]
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -892,7 +779,7 @@ def test_plugin_task_on_failure_exception_error(monkeypatch):
 
 
 def test_plugin_task_on_failure_previous_state(monkeypatch):
-    """Verifies previous_state is included in execution_context."""
+    """Verifies previous_state is included in context."""
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
@@ -909,10 +796,9 @@ def test_plugin_task_on_failure_previous_state(monkeypatch):
             return "queued"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        # previous_state should be in the payload (either directly or in execution context)
-        # The _report_error method will merge execution_context into the main payload
-        # So we need to check if it's present anywhere in the payload
-        assert "queued" in str(payload)
+        # previous_state should be in context
+        assert "context" in payload
+        assert payload["context"]["previous_state"] == "queued"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -925,7 +811,7 @@ def test_plugin_task_on_failure_previous_state(monkeypatch):
 
 
 def test_plugin_task_on_failure_execution_context(monkeypatch):
-    """Verifies execution context fields are extracted from task_instance."""
+    """Verifies execution context fields are serialized from task_instance."""
     from datetime import datetime
 
     import buster.resources.airflow.v3 as v3_module
@@ -933,27 +819,30 @@ def test_plugin_task_on_failure_execution_context(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     class MockTaskInstance:
-        dag_id = "test_dag"
-        run_id = "run_123"
-        task_id = "test_task"
-        try_number = 1
-        max_tries = 3
-        state = "failed"
-        hostname = "worker-1"
-        duration = 42.5
-        start_date = datetime(2025, 1, 1, 12, 0, 0)
-        log_url = "http://airflow/logs/test_dag/test_task"
+        def __init__(self):
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.task_id = "test_task"
+            self.try_number = 1
+            self.max_tries = 3
+            self.state = "failed"
+            self.hostname = "worker-1"
+            self.duration = 42.5
+            self.start_date = datetime(2025, 1, 1, 12, 0, 0)
+            self.log_url = "http://airflow/logs/test_dag/test_task"
 
     class MockState:
         def __str__(self):
             return "running"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        # Check that execution context fields are present
-        payload_str = str(payload)
-        assert "failed" in payload_str or payload.get("state") == "failed"
-        assert "worker-1" in payload_str or payload.get("hostname") == "worker-1"
-        assert 42.5 in str(payload) or payload.get("duration") == 42.5
+        # task_instance should be serialized in context with all fields
+        assert "context" in payload
+        assert "task_instance" in payload["context"]
+        ti_data = payload["context"]["task_instance"]
+        assert ti_data["state"] == "failed"
+        assert ti_data["hostname"] == "worker-1"
+        assert ti_data["duration"] == 42.5
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -983,9 +872,11 @@ def test_plugin_task_on_failure_none_error(monkeypatch):
             return "running"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        # Should not have error_message
-        assert payload.get("error_message") is None
-        assert "exception_location" not in payload or payload.get("exception_location") is None
+        # Error should be None in context
+        assert "context" in payload
+        assert payload["context"]["error"] is None
+        # No msg field since error is None
+        assert "msg" not in payload["context"]
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1004,22 +895,26 @@ def test_plugin_task_on_failure_missing_attributes(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     class MinimalTaskInstance:
-        # Only provide required attributes
-        dag_id = "test_dag"
-        run_id = "run_123"
-        task_id = "test_task"
-        # Missing: try_number, max_tries, state, hostname, duration, start_date, log_url
+        def __init__(self):
+            # Only provide required attributes
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.task_id = "test_task"
+            # Missing: try_number, max_tries, state, hostname, duration, start_date, log_url
 
     class MockState:
         def __str__(self):
             return "running"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["dag_id"] == "test_dag"
-        assert payload["run_id"] == "run_123"
-        assert payload["task_id"] == "test_task"
-        # Missing fields should be None or not present
-        # The function should handle this gracefully without errors
+        # task_instance should still be serialized
+        assert "context" in payload
+        assert "task_instance" in payload["context"]
+        ti_data = payload["context"]["task_instance"]
+        assert ti_data["dag_id"] == "test_dag"
+        assert ti_data["run_id"] == "run_123"
+        assert ti_data["task_id"] == "test_task"
+        # The function should handle missing fields gracefully
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1083,17 +978,23 @@ def test_plugin_dag_on_failure_basic(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     class MockDagRun:
-        dag_id = "test_dag"
-        run_id = "run_123"
-        state = "failed"
+        def __init__(self):
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.state = "failed"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["dag_id"] == "test_dag"
-        assert payload["run_id"] == "run_123"
-        assert payload["event"] == "dag_run_failed"
-        assert payload.get("task_id") is None  # DAG-level failure
-        assert payload.get("exception_location") is None
-        assert payload.get("traceback_frames") is None
+        assert payload["event_type"] == "dag_on_failure"
+        assert payload["event_trigger_type"] == "plugin"
+        # Check context contains serialized data
+        assert "context" in payload
+        assert "dag_run" in payload["context"]
+        dag_run_data = payload["context"]["dag_run"]
+        assert dag_run_data["dag_id"] == "test_dag"
+        assert dag_run_data["run_id"] == "run_123"
+        assert dag_run_data["state"] == "failed"
+        # msg should be in context
+        assert payload["context"]["msg"] == "Test DAG failure message"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1105,7 +1006,7 @@ def test_plugin_dag_on_failure_basic(monkeypatch):
 
 
 def test_plugin_dag_on_failure_with_msg(monkeypatch):
-    """Verifies msg parameter is used as error_message."""
+    """Verifies msg parameter is in context."""
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
@@ -1117,7 +1018,9 @@ def test_plugin_dag_on_failure_with_msg(monkeypatch):
     expected_msg = "DAG failed due to task timeout"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["error_message"] == expected_msg
+        # msg should be in context
+        assert "context" in payload
+        assert payload["context"]["msg"] == expected_msg
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1129,7 +1032,7 @@ def test_plugin_dag_on_failure_with_msg(monkeypatch):
 
 
 def test_plugin_dag_on_failure_empty_msg(monkeypatch):
-    """Verifies default message when msg is empty."""
+    """Verifies empty msg is serialized as-is."""
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
@@ -1139,7 +1042,9 @@ def test_plugin_dag_on_failure_empty_msg(monkeypatch):
         run_id = "run_123"
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload["error_message"] == "DAG run failed with no error message provided"
+        # Empty msg should be in context as empty string
+        assert "context" in payload
+        assert payload["context"]["msg"] == ""
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1152,7 +1057,7 @@ def test_plugin_dag_on_failure_empty_msg(monkeypatch):
 
 
 def test_plugin_dag_on_failure_execution_context(monkeypatch):
-    """Verifies execution context fields extraction."""
+    """Verifies execution context fields are serialized."""
     from datetime import datetime
 
     import buster.resources.airflow.v3 as v3_module
@@ -1160,27 +1065,26 @@ def test_plugin_dag_on_failure_execution_context(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     class MockDagRun:
-        dag_id = "test_dag"
-        run_id = "run_123"
-        state = "failed"
-        start_date = datetime(2024, 1, 1, 12, 0, 0)
-        end_date = datetime(2024, 1, 1, 12, 10, 0)
-        run_type = "scheduled"
-        logical_date = datetime(2024, 1, 1, 11, 0, 0)
-        queued_at = datetime(2024, 1, 1, 11, 55, 0)
+        def __init__(self):
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.state = "failed"
+            self.start_date = datetime(2024, 1, 1, 12, 0, 0)
+            self.end_date = datetime(2024, 1, 1, 12, 10, 0)
+            self.run_type = "scheduled"
+            self.logical_date = datetime(2024, 1, 1, 11, 0, 0)
+            self.queued_at = datetime(2024, 1, 1, 11, 55, 0)
 
     def mock_send_request(url, payload, api_key, logger=None):
-        # Verify basic fields
-        assert payload["state"] == "failed"
-        assert payload["start_date"] == "2024-01-01 12:00:00"
-
-        # Verify duration was calculated
-        assert payload["duration"] == 600.0  # 10 minutes = 600 seconds
-
-        # Verify DAG run specific fields (unique to plugin hook)
-        assert "run_type" in payload
-        assert "logical_date" in payload
-        assert "queued_at" in payload
+        # dag_run should be serialized in context
+        assert "context" in payload
+        assert "dag_run" in payload["context"]
+        dag_run_data = payload["context"]["dag_run"]
+        assert dag_run_data["state"] == "failed"
+        # datetime fields are serialized to ISO format
+        assert "2024-01-01" in dag_run_data["start_date"]
+        assert "2024-01-01" in dag_run_data["end_date"]
+        assert dag_run_data["run_type"] == "scheduled"
 
         return {"success": True}
 
@@ -1193,20 +1097,25 @@ def test_plugin_dag_on_failure_execution_context(monkeypatch):
 
 
 def test_plugin_dag_on_failure_with_conf(monkeypatch):
-    """Verifies dag_run.conf is included in execution context."""
+    """Verifies dag_run.conf is serialized in context."""
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
 
     class MockDagRun:
-        dag_id = "test_dag"
-        run_id = "run_123"
-        conf = {"param1": "value1", "param2": 123}
+        def __init__(self):
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.conf = {"param1": "value1", "param2": 123}
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert "conf" in payload
-        assert payload["conf"]["param1"] == "value1"
-        assert payload["conf"]["param2"] == 123
+        # dag_run should be serialized in context
+        assert "context" in payload
+        assert "dag_run" in payload["context"]
+        dag_run_data = payload["context"]["dag_run"]
+        assert "conf" in dag_run_data
+        assert dag_run_data["conf"]["param1"] == "value1"
+        assert dag_run_data["conf"]["param2"] == 123
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1218,7 +1127,7 @@ def test_plugin_dag_on_failure_with_conf(monkeypatch):
 
 
 def test_plugin_dag_on_failure_no_exception_data(monkeypatch):
-    """Verifies exception_location and traceback_frames are None (no exception object)."""
+    """Verifies that only string message is in context (no exception object)."""
     import buster.resources.airflow.v3 as v3_module
 
     client = Client(buster_api_key="test-key")
@@ -1229,11 +1138,9 @@ def test_plugin_dag_on_failure_no_exception_data(monkeypatch):
 
     def mock_send_request(url, payload, api_key, logger=None):
         # Plugin hook only receives string message, not exception object
-        assert payload.get("exception_location") is None
-        assert payload.get("traceback_frames") is None
-
-        # But error_message should be present
-        assert payload["error_message"] == "Test failure"
+        assert "context" in payload
+        # msg should be present
+        assert payload["context"]["msg"] == "Test failure"
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1245,7 +1152,7 @@ def test_plugin_dag_on_failure_no_exception_data(monkeypatch):
 
 
 def test_plugin_dag_on_failure_data_interval(monkeypatch):
-    """Verifies data_interval extraction from dag_run."""
+    """Verifies data_interval is serialized from dag_run."""
     from datetime import datetime
 
     import buster.resources.airflow.v3 as v3_module
@@ -1256,15 +1163,20 @@ def test_plugin_dag_on_failure_data_interval(monkeypatch):
     interval_end = datetime(2024, 1, 2, 0, 0, 0)
 
     class MockDagRun:
-        dag_id = "test_dag"
-        run_id = "run_123"
-        data_interval_start = interval_start
-        data_interval_end = interval_end
+        def __init__(self):
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            self.data_interval_start = interval_start
+            self.data_interval_end = interval_end
 
     def mock_send_request(url, payload, api_key, logger=None):
-        assert payload.get("data_interval") is not None
-        assert payload["data_interval"]["start"] == str(interval_start)
-        assert payload["data_interval"]["end"] == str(interval_end)
+        # dag_run should be serialized in context
+        assert "context" in payload
+        assert "dag_run" in payload["context"]
+        dag_run_data = payload["context"]["dag_run"]
+        # datetime fields are serialized to ISO format
+        assert "2024-01-01" in dag_run_data["data_interval_start"]
+        assert "2024-01-02" in dag_run_data["data_interval_end"]
         return {"success": True}
 
     monkeypatch.setattr(v3_module, "send_request", mock_send_request)
@@ -1282,21 +1194,21 @@ def test_plugin_dag_on_failure_missing_attributes(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     class MinimalDagRun:
-        # Only required attributes
-        dag_id = "test_dag"
-        run_id = "run_123"
-        # All optional attributes missing
+        def __init__(self):
+            # Only required attributes
+            self.dag_id = "test_dag"
+            self.run_id = "run_123"
+            # All optional attributes missing
 
     def mock_send_request(url, payload, api_key, logger=None):
         # Should still work with minimal attributes
-        assert payload["dag_id"] == "test_dag"
-        assert payload["run_id"] == "run_123"
-        assert payload["event"] == "dag_run_failed"
-
-        # Optional fields should be None or missing
-        assert payload.get("data_interval") is None
-        assert payload.get("state") is None
-        assert payload.get("duration") is None
+        assert payload["event_type"] == "dag_on_failure"
+        assert payload["event_trigger_type"] == "plugin"
+        assert "context" in payload
+        assert "dag_run" in payload["context"]
+        dag_run_data = payload["context"]["dag_run"]
+        assert dag_run_data["dag_id"] == "test_dag"
+        assert dag_run_data["run_id"] == "run_123"
 
         return {"success": True}
 
