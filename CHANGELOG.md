@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.0.4 (2025-12-11)
+
+### Bug Fixes
+
+- Serialization depth limit
+  ([`47fd758`](https://github.com/buster-so/python-sdk/commit/47fd758426499b4655e4701355de5d3d5f890321))
+
+
 ## v0.0.3 (2025-12-11)
 
 ### Bug Fixes
