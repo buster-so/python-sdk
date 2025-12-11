@@ -129,6 +129,7 @@ class AirflowV3:
             self.client.logger.debug("FULL PAYLOAD BEING SENT:")
             self.client.logger.debug("=" * 80)
             self.client.logger.debug(f"event_type: {request_payload.get('event_type')}")
+            self.client.logger.debug(f"event_trigger_type: {request_payload.get('event_trigger_type')}")
             self.client.logger.debug(f"airflow_version: {request_payload.get('airflow_version')}")
             self.client.logger.debug(f"context keys: {list(request_payload.get('context', {}).keys())}")
             self.client.logger.debug("=" * 80)
