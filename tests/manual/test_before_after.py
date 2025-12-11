@@ -125,4 +125,3 @@ if __name__ == "__main__":
 
     mp = SimpleMonkeypatch()
     demo_before_after(mp)
-
