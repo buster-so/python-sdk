@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.0.3 (2025-12-11)
+
+### Bug Fixes
+
+- Move to pass all context
+  ([`ec3a3a2`](https://github.com/buster-so/python-sdk/commit/ec3a3a27d84f66131a7ff3c56054ab21eb2c7d93))
+
+
 ## v0.0.2 (2025-12-10)
 
 ### Bug Fixes
