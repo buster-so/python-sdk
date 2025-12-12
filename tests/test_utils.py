@@ -1,7 +1,7 @@
 import pytest
 import requests
 
-from buster.resources.airflow.utils import get_airflow_v3_url
+from buster.resources.airflow.utils import get_airflow_events_url
 from buster.utils import get_buster_url, send_request
 
 
@@ -30,17 +30,17 @@ def test_get_buster_url_development():
 
 
 def test_get_api_url_production():
-    url = get_airflow_v3_url("production", "v2")
+    url = get_airflow_events_url("production", "v2")
     assert url == "https://api2.buster.so/api/v2/public/airflow-events"
 
 
 def test_get_api_url_development():
-    url = get_airflow_v3_url("development", "v2")
+    url = get_airflow_events_url("development", "v2")
     assert url == "http://host.docker.internal:3002/api/v2/public/airflow-events"
 
 
 def test_get_api_url_staging():
-    url = get_airflow_v3_url("staging", "v2")
+    url = get_airflow_events_url("staging", "v2")
     assert url == "https://api2.staging.buster.so/api/v2/public/airflow-events"
 
 

@@ -250,7 +250,3 @@ def get_airflow_events_url(env: Environment, api_version: ApiVersion) -> str:
     """
     base_url = get_buster_url(env, api_version)
     return f"{base_url}/public/airflow-events"
-
-
-# Backward compatibility alias
-get_airflow_v3_url = get_airflow_events_url

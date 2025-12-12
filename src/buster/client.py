@@ -3,6 +3,7 @@ from typing import Optional
 from .resources.airflow import AirflowResource
 from .types import AirflowReportConfig, ApiVersion, DebugLevel, Environment
 from .utils import get_buster_url, setup_logger
+from .validation import validate_airflow_config, validate_and_get_api_key
 
 
 class Client:
@@ -18,8 +19,6 @@ class Client:
         airflow_config: Optional[AirflowReportConfig] = None,
         debug: Optional[DebugLevel] = None,
     ):
-        import os
-
         # Setup logger based on debug level
         self.logger = setup_logger("buster", debug)
         self.logger.debug("Initializing Buster SDK client...")
@@ -33,27 +32,13 @@ class Client:
         self.logger.debug(f"API Version: {self.api_version}")
         self.logger.debug(f"Base URL: {base_url}")
 
-        # 1. Try param
-        self._buster_api_key = buster_api_key
-        if self._buster_api_key:
-            self.logger.debug("API key loaded from parameter")
+        # Validate and retrieve API key
+        self._buster_api_key = validate_and_get_api_key(buster_api_key, self.logger)
 
-        # 2. Try env var
-        if not self._buster_api_key:
-            self._buster_api_key = os.environ.get("BUSTER_API_KEY")
-            if self._buster_api_key:
-                self.logger.debug("API key loaded from environment variable")
-
-        # 3. Fail if missing
-        if not self._buster_api_key:
-            self.logger.error("API key not found in parameter or environment variable")
-            raise ValueError(
-                "Buster API key must be provided via 'buster_api_key' param or 'BUSTER_API_KEY' environment variable."
-            )
-
-        # Log configuration
+        # Log and validate Airflow configuration
         if airflow_config:
             self.logger.debug(f"Airflow configuration provided: {airflow_config}")
+            validate_airflow_config(airflow_config, self.logger)
 
         self.airflow = AirflowResource(self, config=airflow_config)
 
