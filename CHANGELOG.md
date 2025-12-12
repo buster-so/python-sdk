@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.1.0 (2025-12-12)
+
+### Features
+
+- Add v2 endpoints
+  ([`36eb8fb`](https://github.com/buster-so/python-sdk/commit/36eb8fbcd58bd0bc7da8217839cc7f8e6d426fee))
+
+
 ## v0.0.4 (2025-12-11)
 
 ### Bug Fixes

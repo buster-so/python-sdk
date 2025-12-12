@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "buster-sdk"
-version = "0.0.4"
+version = "0.1.0"
 description = "A Python SDK for Buster"
 readme = "README.md"
 authors = [{ name = "Buster", email = "support@buster.so" }]
