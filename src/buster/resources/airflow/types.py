@@ -33,7 +33,10 @@ class AirflowEventTriggerType(str, Enum):
 
 class AirflowTaskFailureCallback(TypedDict, total=False):
     """
-    TypedDict representing the Airflow 3 task failure callback context.
+    TypedDict representing the Airflow task failure callback context.
+
+    Compatible with both Airflow 2.11 and 3.x. The context structure is similar
+    across versions, with minor field differences handled gracefully.
 
     This matches the context dictionary passed to on_failure_callback for tasks.
     All fields are optional as Airflow may not provide all of them.
@@ -92,7 +95,10 @@ class AirflowTaskFailureCallback(TypedDict, total=False):
 
 class AirflowDagFailureCallback(TypedDict, total=False):
     """
-    TypedDict representing the Airflow 3 DAG failure callback context.
+    TypedDict representing the Airflow DAG failure callback context.
+
+    Compatible with both Airflow 2.11 and 3.x. The context structure is similar
+    across versions, with minor field differences handled gracefully.
 
     This matches the context dictionary passed to on_failure_callback for DAGs.
     All fields are optional as Airflow may not provide all of them.
@@ -208,3 +214,11 @@ class AirflowReportConfig(TypedDict, total=False):
     """
 
     send_when_retries_exhausted: bool
+
+
+# Type aliases for Airflow 2.11
+# These are identical to the base types but provide clearer naming for 2.11 users
+Airflow2_11TaskFailureCallback = AirflowTaskFailureCallback
+Airflow2_11DagFailureCallback = AirflowDagFailureCallback
+Airflow2_11PluginTaskFailureCallback = AirflowPluginTaskFailureCallback
+Airflow2_11PluginDagFailureCallback = AirflowPluginDagFailureCallback

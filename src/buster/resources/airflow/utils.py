@@ -19,6 +19,7 @@ def serialize_airflow_context(context: Dict[str, Any], max_depth: int = 5) -> Di
     - Other non-serializable objects (converts to string representation)
     - Circular references (tracks visited objects to prevent infinite loops)
     - Depth limiting (stops recursion at max_depth to prevent stack overflow)
+    - Nested object deduplication (replaces duplicates with reference markers)
 
     Args:
         context: The Airflow context dictionary to serialize
@@ -29,14 +30,35 @@ def serialize_airflow_context(context: Dict[str, Any], max_depth: int = 5) -> Di
     """
     serialized: Dict[str, Any] = {}
     visited: set[int] = set()  # Track visited objects by id to detect circular references
+    top_level_objects: Dict[int, str] = {}  # Map object id -> top-level key name
 
+    # First pass: track top-level objects that have __dict__ (complex objects)
     for key, value in context.items():
-        serialized[key] = _serialize_value(value, depth=0, max_depth=max_depth, visited=visited)
+        if value is not None and hasattr(value, "__dict__"):
+            top_level_objects[id(value)] = key
+
+    # Second pass: serialize all values, replacing nested duplicates with references
+    for key, value in context.items():
+        serialized[key] = _serialize_value(
+            value,
+            depth=0,
+            max_depth=max_depth,
+            visited=visited,
+            top_level_objects=top_level_objects,
+            current_top_level_key=key,
+        )
 
     return serialized
 
 
-def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Optional[set[int]] = None) -> Any:
+def _serialize_value(
+    value: Any,
+    depth: int = 0,
+    max_depth: int = 5,
+    visited: Optional[set[int]] = None,
+    top_level_objects: Optional[Dict[int, str]] = None,
+    current_top_level_key: Optional[str] = None,
+) -> Any:
     """
     Recursively serialize a value to a JSON-safe format with depth limiting and circular reference detection.
 
@@ -45,12 +67,16 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
         depth: Current recursion depth
         max_depth: Maximum allowed recursion depth
         visited: Set of visited object ids to detect circular references
+        top_level_objects: Map of object id -> top-level key name for deduplication
+        current_top_level_key: The top-level key being serialized (to avoid self-referencing)
 
     Returns:
         A JSON-serializable version of the value
     """
     if visited is None:
         visited = set()
+    if top_level_objects is None:
+        top_level_objects = {}
 
     # Check depth limit
     if depth > max_depth:
@@ -78,6 +104,13 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
     if obj_id in visited:
         return f"<circular reference to {type(value).__name__}>"
 
+    # Check if this object is a top-level object that we've already seen
+    # (but not if we're currently serializing that top-level object itself)
+    if depth > 0 and obj_id in top_level_objects:
+        top_level_key = top_level_objects[obj_id]
+        if top_level_key != current_top_level_key:
+            return f"<reference to top-level '{top_level_key}'>"
+
     # Handle Exception objects - serialize with type, message, and traceback
     if isinstance(value, BaseException):
         visited.add(obj_id)
@@ -95,7 +128,10 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
     if isinstance(value, list):
         visited.add(obj_id)
         try:
-            return [_serialize_value(item, depth + 1, max_depth, visited) for item in value]
+            return [
+                _serialize_value(item, depth + 1, max_depth, visited, top_level_objects, current_top_level_key)
+                for item in value
+            ]
         finally:
             visited.discard(obj_id)
 
@@ -103,7 +139,10 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
     if isinstance(value, tuple):
         visited.add(obj_id)
         try:
-            return [_serialize_value(item, depth + 1, max_depth, visited) for item in value]
+            return [
+                _serialize_value(item, depth + 1, max_depth, visited, top_level_objects, current_top_level_key)
+                for item in value
+            ]
         finally:
             visited.discard(obj_id)
 
@@ -111,7 +150,10 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
     if isinstance(value, set):
         visited.add(obj_id)
         try:
-            return [_serialize_value(item, depth + 1, max_depth, visited) for item in value]
+            return [
+                _serialize_value(item, depth + 1, max_depth, visited, top_level_objects, current_top_level_key)
+                for item in value
+            ]
         finally:
             visited.discard(obj_id)
 
@@ -119,7 +161,19 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
     if isinstance(value, dict):
         visited.add(obj_id)
         try:
-            return {k: _serialize_value(v, depth + 1, max_depth, visited) for k, v in value.items()}
+            # Convert keys to strings if they're not JSON-serializable (e.g., tuples)
+            result = {}
+            for k, v in value.items():
+                # Ensure key is JSON-serializable
+                if isinstance(k, (str, int, float, bool, type(None))):
+                    json_key = k
+                else:
+                    # Convert non-serializable keys (like tuples) to strings
+                    json_key = str(k)
+                result[json_key] = _serialize_value(
+                    v, depth + 1, max_depth, visited, top_level_objects, current_top_level_key
+                )
+            return result
         finally:
             visited.discard(obj_id)
 
@@ -134,7 +188,9 @@ def _serialize_value(value: Any, depth: int = 0, max_depth: int = 5, visited: Op
                     # Skip private/protected attributes
                     if not attr_key.startswith("_"):
                         try:
-                            obj_dict[attr_key] = _serialize_value(attr_value, depth + 1, max_depth, visited)
+                            obj_dict[attr_key] = _serialize_value(
+                                attr_value, depth + 1, max_depth, visited, top_level_objects, current_top_level_key
+                            )
                         except Exception:
                             # If serialization fails for an attribute, convert to string
                             obj_dict[attr_key] = str(attr_value)
@@ -186,9 +242,15 @@ def get_airflow_version(flow_version: AirflowFlowVersion = "3.1") -> str:
             return flow_version
 
 
-def get_airflow_v3_url(env: Environment, api_version: ApiVersion) -> str:
+def get_airflow_events_url(env: Environment, api_version: ApiVersion) -> str:
     """
-    Constructs the full API URL based on the environment and API version.
+    Constructs the full API URL for Airflow events (all versions).
+
+    This endpoint is used for both Airflow 2.11 and Airflow 3.x callback events.
     """
     base_url = get_buster_url(env, api_version)
     return f"{base_url}/public/airflow-events"
+
+
+# Backward compatibility alias
+get_airflow_v3_url = get_airflow_events_url
