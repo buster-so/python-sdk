@@ -5,7 +5,8 @@ This module contains the shared implementation used by both Airflow 2.11
 and Airflow 3.x handlers.
 """
 
-from typing import Any, Dict, Optional, Union, cast
+from io import BytesIO
+from typing import IO, Any, Dict, Optional, Tuple, Union, cast
 
 from pydantic import ValidationError
 
@@ -19,6 +20,7 @@ from buster.types import (
 )
 from buster.utils import send_request
 
+from .get_logs import get_all_dag_logs, get_all_task_logs
 from .models import AirflowErrorEvent
 from .utils import (
     get_airflow_events_url,
@@ -183,6 +185,67 @@ class AirflowBase:
             # Convert validated event to API payload format
             request_payload = event.to_payload()
 
+            # Retrieve logs and prepare file attachments
+            self.client.logger.debug("Retrieving logs for error report...")
+            log_files: Dict[str, Union[IO[bytes], Tuple[str, IO[bytes]], Tuple[str, IO[bytes], str]]] = {}
+
+            try:
+                if event_type == AirflowEventType.TASK_ON_FAILURE and dag_id and run_id and task_id:
+                    # For task failures, get logs for the specific task
+                    self.client.logger.debug(f"Fetching task logs: dag_id={dag_id}, task_id={task_id}, run_id={run_id}")
+                    logs = get_all_task_logs(
+                        dag_id=dag_id,
+                        task_id=task_id,
+                        dag_run_id=run_id,
+                        logger=self.client.logger,
+                    )
+                    if logs:
+                        # Create file attachment for the task logs
+                        log_bytes = BytesIO(logs.encode('utf-8'))
+                        filename = f"{task_id}.log"
+                        log_files['log_file'] = (filename, log_bytes, 'text/plain')
+
+                        log_size_kb = len(logs) / 1024
+                        self.client.logger.debug(
+                            f"✓ Prepared task log file attachment: {filename} ({log_size_kb:.2f} KB, {len(logs)} characters)"
+                        )
+                    else:
+                        self.client.logger.debug("⚠️  No task logs retrieved (Airflow SDK may not be available)")
+
+                elif event_type == AirflowEventType.DAG_ON_FAILURE and dag_id and run_id:
+                    # For DAG failures, get logs for all tasks in the DAG run
+                    self.client.logger.debug(f"Fetching all DAG logs: dag_id={dag_id}, run_id={run_id}")
+                    all_logs = get_all_dag_logs(
+                        dag_id=dag_id,
+                        dag_run_id=run_id,
+                        logger=self.client.logger,
+                    )
+                    if all_logs:
+                        # Create file attachments for each task's logs
+                        total_log_size = 0
+                        for task_id_key, task_logs in all_logs.items():
+                            log_bytes = BytesIO(task_logs.encode('utf-8'))
+                            filename = f"{task_id_key}.log"
+                            # Use unique keys for multiple files
+                            log_files[f'log_file_{task_id_key}'] = (filename, log_bytes, 'text/plain')
+                            total_log_size += len(task_logs)
+
+                        log_size_kb = total_log_size / 1024
+                        self.client.logger.debug(
+                            f"✓ Prepared {len(all_logs)} log file attachments "
+                            f"({log_size_kb:.2f} KB, {total_log_size} characters)"
+                        )
+                    else:
+                        self.client.logger.debug("⚠️  No DAG logs retrieved (Airflow SDK may not be available)")
+                else:
+                    self.client.logger.debug("⏭️  Skipping log retrieval (missing identifiers or unsupported event type)")
+
+            except Exception as log_error:
+                # Log retrieval is non-fatal - continue with error report even if logs fail
+                self.client.logger.warning(
+                    f"⚠️  Failed to retrieve logs (non-fatal): {log_error}. Continuing with error report..."
+                )
+
             # Construct the URL
             url = get_airflow_events_url(env, api_version)
             self.client.logger.debug(f"Sending request to: {url} (env={env}, api_version={api_version})")
@@ -196,18 +259,22 @@ class AirflowBase:
             self.client.logger.debug(f"airflow_version: {request_payload.get('airflow_version')}")
             self.client.logger.debug(f"context keys: {list(request_payload.get('context', {}).keys())}")
 
+            if log_files:
+                self.client.logger.debug(f"log file attachments: {[name for name, _ in log_files.items()]}")
+
             # Calculate payload size
             payload_json = json.dumps(request_payload, default=str)
             payload_size_kb = len(payload_json) / 1024
             self.client.logger.debug(f"Payload size: {payload_size_kb:.2f} KB")
             self.client.logger.debug("=" * 80)
 
-            # Send the request
+            # Send the request with log file attachments if available
             send_request(
                 url,
                 cast(Dict[str, Any], request_payload),
                 self.client._buster_api_key,
                 self.client.logger,
+                files=log_files if log_files else None,
             )
 
             self.client.logger.info("✓ Event reported successfully")
