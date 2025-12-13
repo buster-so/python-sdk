@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.2.0 (2025-12-13)
+
+### Features
+
+- Add log files to sdk output
+  ([`144e45a`](https://github.com/buster-so/python-sdk/commit/144e45acf245e7953555e7d5ee97979199a0a379))
+
+
 ## v0.1.0 (2025-12-12)
 
 ### Features
