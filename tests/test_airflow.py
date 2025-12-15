@@ -32,7 +32,7 @@ def test_airflow_report_error(capsys, monkeypatch):
     # Mock send_request
     mock_response = {"success": True}
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         assert "api2.buster.so/api/v2/public/airflow-events" in url
         assert payload["event_type"] == "dag_on_failure"
         assert payload["event_trigger_type"] == "dag"
@@ -66,7 +66,7 @@ def test_airflow_validation_error():
 
     import buster.resources.airflow.base as base_module
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Should successfully send even with minimal context
         assert payload["event_type"] == "dag_on_failure"
         assert "context" in payload
@@ -92,7 +92,7 @@ def test_airflow_report_error_with_api_version(monkeypatch):
     client = Client(buster_api_key="test-key", api_version="v2")
 
     # Mock
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         return {"success": True}
 
     monkeypatch.setattr(base_module, "send_request", mock_send_request)
@@ -117,7 +117,7 @@ def test_airflow_report_error_with_env(monkeypatch):
     client = Client(buster_api_key="test-key", env="staging")
 
     # Mock
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         assert "staging" in url
         return {"success": True}
 
@@ -149,7 +149,7 @@ def test_airflow_version_auto_detection(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     # Mock
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Should have an airflow_version (either detected or default "3.1")
         assert "airflow_version" in payload, "airflow_version must be in payload"
         assert payload["airflow_version"] is not None, "airflow_version must not be None"
@@ -176,7 +176,7 @@ def test_airflow_payload_includes_none_values(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     # Mock
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # airflow_version should always be present (auto-detected to "3.1")
         assert "airflow_version" in payload
         assert payload["airflow_version"] == "3.1"
@@ -234,7 +234,7 @@ def test_airflow_report_error_sends_on_exhaustion(monkeypatch):
     # Mock
     called = False
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         nonlocal called
         called = True
         return {"success": True}
@@ -264,7 +264,7 @@ def test_airflow_report_error_default_event_type(monkeypatch):
     client = Client(buster_api_key="test-key")
 
     # Mock
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         assert payload["event_type"] == AirflowEventType.TASK_ON_FAILURE.value
         assert payload["event_type"] == "task_on_failure"
         assert payload["event_trigger_type"] == "dag"
@@ -292,7 +292,7 @@ def test_dag_on_failure_serializes_exception(monkeypatch):
 
     mock_exception_msg = "Test exception message"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Exception should be serialized in context
         assert "context" in payload
         assert "exception" in payload["context"]
@@ -324,7 +324,7 @@ def test_task_on_failure_serializes_exception(monkeypatch):
 
     mock_exception_msg = "Task failure exception"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Exception should be serialized in context
         assert "context" in payload
         assert "exception" in payload["context"]
@@ -365,7 +365,7 @@ def test_serializes_exception_with_traceback(monkeypatch):
         def __init__(self):
             self.log_url = "https://airflow.example.com/dags/test_dag/grid?task_id=test_task"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Verify exception is serialized with traceback
         exception_data = payload["context"]["exception"]
         assert exception_data["_type"] == "exception"
@@ -406,7 +406,7 @@ def test_operator_serialization(monkeypatch):
         def __init__(self):
             self.operator_name = "PythonOperator"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Task should be serialized in context
         assert "task" in payload["context"]
         task_data = payload["context"]["task"]
@@ -436,7 +436,7 @@ def test_params_serialization(monkeypatch):
 
     test_params = {"key1": "value1", "key2": 123}
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Params should be in context
         assert "params" in payload["context"]
         assert payload["context"]["params"] == test_params
@@ -471,7 +471,7 @@ def test_task_instance_serialization(monkeypatch):
             self.start_date = "2024-01-01 00:00:00"
             self.log_url = "https://airflow.example.com/logs"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # task_instance should be serialized in context
         assert "task_instance" in payload["context"]
         ti_data = payload["context"]["task_instance"]
@@ -510,7 +510,7 @@ def test_task_dependencies_serialization(monkeypatch):
             self.upstream_task_ids = {"task_a", "task_b"}
             self.downstream_task_ids = {"task_d", "task_e"}
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Task with dependencies should be serialized
         assert "task" in payload["context"]
         task_data = payload["context"]["task"]
@@ -551,7 +551,7 @@ def test_retry_config_serialization(monkeypatch):
             self.retry_exponential_backoff = True
             self.max_retry_delay = timedelta(hours=1)
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Task with retry config should be serialized
         assert "task" in payload["context"]
         task_data = payload["context"]["task"]
@@ -589,7 +589,7 @@ def test_dag_config_serialization(monkeypatch):
             self.catchup = False
             self.max_active_runs = 3
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # DAG should be serialized in context
         assert "dag" in payload["context"]
         dag_data = payload["context"]["dag"]
@@ -630,7 +630,7 @@ def test_data_interval_serialization(monkeypatch):
             self.data_interval_start = datetime(2024, 1, 1, 0, 0, 0)
             self.data_interval_end = datetime(2024, 1, 2, 0, 0, 0)
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # dag_run should be serialized in context
         assert "dag_run" in payload["context"]
         dag_run_data = payload["context"]["dag_run"]
@@ -674,7 +674,7 @@ def test_plugin_task_on_failure_basic(monkeypatch):
         def __str__(self):
             return "running"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         assert payload["event_type"] == "task_on_failure"
         assert payload["event_trigger_type"] == "plugin"
         # Check context contains serialized data
@@ -714,7 +714,7 @@ def test_plugin_task_on_failure_string_error(monkeypatch):
         def __str__(self):
             return "running"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # String error should be in context
         assert "context" in payload
         assert payload["context"]["error"] == "String error message"
@@ -754,7 +754,7 @@ def test_plugin_task_on_failure_exception_error(monkeypatch):
     except ValueError as e:
         test_exception = e
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Exception should be serialized in context
         assert "context" in payload
         assert "error" in payload["context"]
@@ -795,7 +795,7 @@ def test_plugin_task_on_failure_previous_state(monkeypatch):
         def __str__(self):
             return "queued"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # previous_state should be in context
         assert "context" in payload
         assert payload["context"]["previous_state"] == "queued"
@@ -835,7 +835,7 @@ def test_plugin_task_on_failure_execution_context(monkeypatch):
         def __str__(self):
             return "running"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # task_instance should be serialized in context with all fields
         assert "context" in payload
         assert "task_instance" in payload["context"]
@@ -871,7 +871,7 @@ def test_plugin_task_on_failure_none_error(monkeypatch):
         def __str__(self):
             return "running"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Error should be None in context
         assert "context" in payload
         assert payload["context"]["error"] is None
@@ -906,7 +906,7 @@ def test_plugin_task_on_failure_missing_attributes(monkeypatch):
         def __str__(self):
             return "running"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # task_instance should still be serialized
         assert "context" in payload
         assert "task_instance" in payload["context"]
@@ -949,7 +949,7 @@ def test_plugin_task_on_failure_retry_exhaustion(monkeypatch):
 
     send_request_called = []
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         send_request_called.append(True)
         return {"success": True}
 
@@ -983,7 +983,7 @@ def test_plugin_dag_on_failure_basic(monkeypatch):
             self.run_id = "run_123"
             self.state = "failed"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         assert payload["event_type"] == "dag_on_failure"
         assert payload["event_trigger_type"] == "plugin"
         # Check context contains serialized data
@@ -1017,7 +1017,7 @@ def test_plugin_dag_on_failure_with_msg(monkeypatch):
 
     expected_msg = "DAG failed due to task timeout"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # msg should be in context
         assert "context" in payload
         assert payload["context"]["msg"] == expected_msg
@@ -1041,7 +1041,7 @@ def test_plugin_dag_on_failure_empty_msg(monkeypatch):
         dag_id = "test_dag"
         run_id = "run_123"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Empty msg should be in context as empty string
         assert "context" in payload
         assert payload["context"]["msg"] == ""
@@ -1075,7 +1075,7 @@ def test_plugin_dag_on_failure_execution_context(monkeypatch):
             self.logical_date = datetime(2024, 1, 1, 11, 0, 0)
             self.queued_at = datetime(2024, 1, 1, 11, 55, 0)
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # dag_run should be serialized in context
         assert "context" in payload
         assert "dag_run" in payload["context"]
@@ -1108,7 +1108,7 @@ def test_plugin_dag_on_failure_with_conf(monkeypatch):
             self.run_id = "run_123"
             self.conf = {"param1": "value1", "param2": 123}
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # dag_run should be serialized in context
         assert "context" in payload
         assert "dag_run" in payload["context"]
@@ -1136,7 +1136,7 @@ def test_plugin_dag_on_failure_no_exception_data(monkeypatch):
         dag_id = "test_dag"
         run_id = "run_123"
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Plugin hook only receives string message, not exception object
         assert "context" in payload
         # msg should be present
@@ -1169,7 +1169,7 @@ def test_plugin_dag_on_failure_data_interval(monkeypatch):
             self.data_interval_start = interval_start
             self.data_interval_end = interval_end
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # dag_run should be serialized in context
         assert "context" in payload
         assert "dag_run" in payload["context"]
@@ -1200,7 +1200,7 @@ def test_plugin_dag_on_failure_missing_attributes(monkeypatch):
             self.run_id = "run_123"
             # All optional attributes missing
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         # Should still work with minimal attributes
         assert payload["event_type"] == "dag_on_failure"
         assert payload["event_trigger_type"] == "plugin"

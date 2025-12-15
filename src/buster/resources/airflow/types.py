@@ -1,7 +1,7 @@
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Union
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 # Airflow types - use static type checking only to avoid runtime import issues
 
@@ -208,17 +208,6 @@ class AirflowEventsPayload(TypedDict):
     # not as fields in this JSON payload
 
 
-AirflowDeploymentType = Literal["local", "astronomer", "api", "sdk"]
-"""
-Type for Airflow deployment types.
-
-- "local": Airflow running locally with filesystem access to logs
-- "astronomer": Airflow running on Astronomer platform (requires REST API access)
-- "api": Airflow accessed via REST API (generic)
-- "sdk": Use Airflow SDK to query metadata database (requires Airflow installed)
-"""
-
-
 class AirflowReportConfig(TypedDict, total=False):
     """
     Configuration options for Airflow error reporting.
@@ -228,25 +217,9 @@ class AirflowReportConfig(TypedDict, total=False):
 
     Fields:
         send_when_retries_exhausted: If True, only send reports when task retries are exhausted (default: True)
-        deployment_type: How Airflow is deployed - "local" or "astronomer"
-
-        For "local" deployments:
-            logs_directory: Path to Airflow logs directory (optional, defaults to $AIRFLOW_HOME/logs)
-
-        For "astronomer" and other non-local deployments:
-            airflow_base_url: Base URL of Airflow (required, e.g., "http://localhost:8080")
-            api_username: Airflow username for basic auth (required if not using api_token)
-            api_password: Airflow password for basic auth (required if not using api_token)
-            api_token: Airflow API token for bearer auth (alternative to username/password)
     """
 
     send_when_retries_exhausted: bool
-    deployment_type: AirflowDeploymentType
-    airflow_base_url: str
-    logs_directory: str
-    api_username: str
-    api_password: str
-    api_token: str
 
 
 # Type aliases for Airflow 2.11

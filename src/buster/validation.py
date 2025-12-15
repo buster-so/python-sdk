@@ -49,44 +49,15 @@ def validate_airflow_config(
     logger: logging.Logger,
 ) -> None:
     """
-    Validate Airflow configuration to ensure required fields are present
-    for the specified deployment type.
+    Validate Airflow configuration.
 
     Args:
         config: The Airflow configuration to validate
         logger: Logger instance for debug output
 
     Raises:
-        ValueError: If required fields are missing for the deployment type
+        ValueError: If required fields are missing or invalid
     """
-    deployment_type = config.get("deployment_type")
-
-    # If deployment_type is not specified, no validation needed
-    if not deployment_type:
-        return
-
-    # Validate non-local deployments (astronomer, etc.)
-    if deployment_type != "local":
-        # Check for required base URL
-        if not config.get("airflow_base_url"):
-            raise ValueError(
-                f"airflow_config with deployment_type='{deployment_type}' requires 'airflow_base_url' to be set. "
-                f"Example: airflow_base_url='http://localhost:8080'"
-            )
-
-        # Check for authentication credentials
-        has_token = bool(config.get("api_token"))
-        has_basic_auth = bool(config.get("api_username") and config.get("api_password"))
-
-        if not has_token and not has_basic_auth:
-            raise ValueError(
-                f"airflow_config with deployment_type='{deployment_type}' requires authentication credentials. "
-                f"Provide either:\n"
-                f"  - 'api_token' for bearer token authentication, or\n"
-                f"  - Both 'api_username' and 'api_password' for basic authentication"
-            )
-
-        logger.debug(
-            f"Airflow config validation passed for deployment_type='{deployment_type}' "
-            f"(auth: {'token' if has_token else 'basic'})"
-        )
+    # Currently no validation needed - all fields are optional
+    # This function is kept for future validation needs
+    pass

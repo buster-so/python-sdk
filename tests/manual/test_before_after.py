@@ -40,7 +40,7 @@ def demo_before_after(monkeypatch):
 
     captured_payloads = []
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         captured_payloads.append(payload)
         return {"success": True}
 

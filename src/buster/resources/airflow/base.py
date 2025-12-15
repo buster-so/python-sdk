@@ -201,9 +201,9 @@ class AirflowBase:
                     )
                     if logs:
                         # Create file attachment for the task logs
-                        log_bytes = BytesIO(logs.encode('utf-8'))
+                        log_bytes = BytesIO(logs.encode("utf-8"))
                         filename = f"{task_id}.log"
-                        log_files['log_file'] = (filename, log_bytes, 'text/plain')
+                        log_files["log_file"] = (filename, log_bytes, "text/plain")
 
                         log_size_kb = len(logs) / 1024
                         self.client.logger.debug(
@@ -224,10 +224,10 @@ class AirflowBase:
                         # Create file attachments for each task's logs
                         total_log_size = 0
                         for task_id_key, task_logs in all_logs.items():
-                            log_bytes = BytesIO(task_logs.encode('utf-8'))
+                            log_bytes = BytesIO(task_logs.encode("utf-8"))
                             filename = f"{task_id_key}.log"
                             # Use unique keys for multiple files
-                            log_files[f'log_file_{task_id_key}'] = (filename, log_bytes, 'text/plain')
+                            log_files[f"log_file_{task_id_key}"] = (filename, log_bytes, "text/plain")
                             total_log_size += len(task_logs)
 
                         log_size_kb = total_log_size / 1024

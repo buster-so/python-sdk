@@ -17,7 +17,7 @@ def inspect_payload(monkeypatch):
 
     captured_payload = {}
 
-    def mock_send_request(url, payload, api_key, logger=None):
+    def mock_send_request(url, payload, api_key, logger=None, files=None):
         captured_payload.update(payload)
         return {"success": True}
 
