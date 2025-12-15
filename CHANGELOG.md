@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.2.1 (2025-12-15)
+
+### Bug Fixes
+
+- Remove extra unused config
+  ([`8efc481`](https://github.com/buster-so/python-sdk/commit/8efc48145c8f46fb008639dd9f469243a655e95b))
+
+
 ## v0.2.0 (2025-12-13)
 
 ### Features
